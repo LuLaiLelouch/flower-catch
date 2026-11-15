@@ -5,7 +5,8 @@
 ## 开始玩
 
 - 本地：双击 `index.html` 直接用浏览器打开（`file://` 也能正常播放音乐和音效）
-- 在线：用仓库的 GitHub Pages 地址或项目分享链接打开
+- 在线试玩：https://wbapp-yudaw7fmiebs5k4zewgq8m.app.workbuddy.host/?sharecode=6XOBM3KVKO
+- GitHub Pages 启用后，也可以用 `https://<用户名>.github.io/flower-catch/` 打开
 
 操作：鼠标移动 / 手指拖动 / `← →` 或 `A D` 控制底部角色；`ESC` 或右上角暂停按钮可呼出暂停界面（继续游戏 / 重新开始 / 返回主页面）。
 
