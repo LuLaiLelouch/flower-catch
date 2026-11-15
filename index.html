@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page-node-id="jKmlzGGYDDAI97BiPjbLc8">
+<head data-page-node-id="SvJhkqjMDaspUEoL7gpQQT">
+<meta charset="UTF-8" data-page-node-id="iDnj63LKEleryCkWUyIktP">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>花朵大作战 · Flower Catcher</title>
+<link rel="stylesheet" href="css/style.css" data-page-node-id="JA0lnNSwTAaN83r8icZ7og">
+</head>
+<body data-page-node-id="7InGvxMGR8u1AOAlmugxUc">
+
+<div id="app" data-page-node-id="ZohLkDXL6RoxnYgbXbhp1W">
+  <div id="stage" data-page-node-id="3YXWkAcf9uapT1CJuaozA1">
+    <canvas id="game" width="900" height="640" data-page-node-id="LLCoGnKUKzxAfXm9MA0uUH"></canvas>
+
+    <!-- ===== 游戏内 HUD ===== -->
+    <div id="hud" class="hidden" data-page-node-id="tYz3quFUYjz48xwD6YMHVJ">
+      <div class="hud-left" data-page-node-id="uyHGAx1TqsTTjOIRQn6frn">
+        <div class="hud-card score-card" data-page-node-id="qRzdjJ7HlaxDzsrq2ewutI">
+          <span class="hud-label" data-page-node-id="fSikNoE7eOJZrT3RCLySFZ">分数</span>
+          <span id="score" data-page-node-id="9oWNHgUmkEaGAPGSFkpTXp">0</span>
+        </div>
+        <div id="combo" class="combo hidden" data-page-node-id="0cBLP7gQwWle5DrBQTXz49">连击 <b id="comboNum" data-page-node-id="bWVMIFvG5W3kDhBhAajOwb">2</b> ×</div>
+      </div>
+      <div class="hud-right" data-page-node-id="rFOsZxQ5ULU9WlkYxdKwUW">
+        <div class="hud-card life-card" data-page-node-id="r1obw55iLRuooTqeSHfOhY">
+          <span class="hud-label" data-page-node-id="fR7au3Pk7RBiZ002OMzWJW">生命</span>
+          <div id="lives" class="lives" data-page-node-id="LFQzwExr9vVDqukwHl7SoV"></div>
+        </div>
+        <button id="btnMusic" class="icon-btn" title="背景音乐开关（只管 BGM）">
+          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M9 18.5a2.5 2.5 0 1 1-2.5-2.5c.55 0 1.06.18 1.47.47V5.2l9-1.7v3.06l-6.5 1.23v9.21c0 .14-.01.27-.04.4A2.5 2.5 0 0 1 9 18.5zm9-4.5a2.5 2.5 0 1 1-2.5-2.5c.2 0 .39.02.57.07V6.4l1.93-.36v7.83c0 .04 0 .08.01.13z" fill="currentColor"/></svg>
+        </button>
+        <button id="btnPause" class="icon-btn" title="暂停（ESC）">
+          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M7 5h4v14H7zM13 5h4v14h-4z" fill="currentColor"/></svg>
+        </button>
+        <button id="btnSound" class="icon-btn" title="音效开关" data-page-node-id="c7AyXFMNrL3fw10AbfGiKa">
+          <svg viewBox="0 0 24 24" width="20" height="20" data-page-node-id="866TjyvocOvITGo5FRo0te"><path d="M3 10v4h3l4 4V6L6 10H3zm11.5 2a3.5 3.5 0 0 0-2-3.16v6.32A3.5 3.5 0 0 0 14.5 12zM12 3.7v2.06A6.5 6.5 0 0 1 12 18.24v2.06A8.5 8.5 0 0 0 12 3.7z" fill="currentColor" data-page-node-id="EkTXGC1USIuDFw6hLuCud5"/></svg>
+        </button>
+      </div>
+      <!-- 关卡进度：闯关=第几关+本关分/目标分；无尽=第几档+本档分/阈值 -->
+      <div id="levelBox" class="level-box">
+        <div class="level-row">
+          <span class="level-tag"><span id="levelPrefix">第</span> <b id="levelNum">1</b> <span id="levelSuffix">关</span></span>
+          <span id="levelScore" class="level-score">0 / 1000</span>
+        </div>
+        <div class="level-bar"><i id="levelFill"></i></div>
+      </div>
+    </div>
+
+    <!-- ===== 开始界面 ===== -->
+    <div id="overlayStart" class="overlay" data-page-node-id="RdCqe8SMsE1cDAPAwjVO3A">
+      <div class="panel" data-page-node-id="2JrOs2t3WzsyH1S3CmX4it">
+        <div class="logo" data-page-node-id="HN5a5T4nCG7OFOqo2cQdBk">
+          <span class="logo-flower" data-page-node-id="187bCqb6hp27MbOUS0tKdj">✿</span>
+          <h1 data-page-node-id="Vj9IMH3o3PAxJ98JZ6qflu">花朵大作战</h1>
+          <p class="subtitle" data-page-node-id="NmQFh1rj29ob3GCz14WHGV">Flower Catcher · 闯关版</p>
+        </div>
+        <ul class="rules" data-page-node-id="znXBSRSkO1qg0lQ6TXQrco">
+          <li data-page-node-id="7hyr72VMGMe6wFkjE27sBq"><span class="tag good" data-page-node-id="1AjTdiriqC4ih2IW42EFL8">✿ 花朵</span> 接到加分，连击有加成；过关会解锁分值更高的新花</li>
+          <li data-page-node-id="ZU7sMcOiJAVcT0NOCCrUD3"><span class="tag bad" data-page-node-id="v7VBl4RXTt2T9Q50yGTtHG">☢ 炸弹</span> 接到扣 1 点生命，关卡越深掉得越多、越快</li>
+          <li data-page-node-id="OvcmXrtCSUVhyMwsWy7LCT"><span class="tag life" data-page-node-id="sAVmmIuhjpJEC6xPPAC5SX">♥ 生命</span> 共 3 点，用光即游戏结束；第 3 关起掉落回血道具</li>
+          <li><span class="tag level">★ 闯关</span> 共 5 关，目标分 300 / 600 / 900 / 1200 / 1500，每关独立计分</li>
+        </ul>
+        <button id="btnStart" class="btn-main" data-page-node-id="XnW3cFqV9rvnVjW5nuPGmc">开 始 游 戏</button>
+        <p id="startHint" class="start-hint">从第 1 关开始</p>
+
+        <!-- 关卡格子：由 game.js 按存档生成，未解锁的会锁住 -->
+        <div id="levelGrid" class="level-grid"></div>
+
+        <button id="btnEndless" class="btn-endless locked">∞ 无尽模式</button>
+        <p id="endlessHint" class="start-hint">通关第 5 关后解锁</p>
+
+        <p class="tips" data-page-node-id="c6cvJocMGHe0wJdFnHxJsU">操作：鼠标移动 / 手指拖动 / ← → 或 A D 键</p>
+        <p class="dev-tip" data-page-node-id="UNcfCcPL6UG7w8mQEN5yWn">想换人物和道具？打开 <code data-page-node-id="CkifH7TwFMy68Hdt34iTWf">js/config.js</code> 填写图片路径即可替换 · <a id="btnReset" class="link">重置全部进度</a></p>
+      </div>
+    </div>
+
+    <!-- ===== 暂停界面 ===== -->
+    <div id="overlayPause" class="overlay hidden">
+      <div class="panel">
+        <div class="logo">
+          <span class="logo-pause">❚❚</span>
+          <h1>游戏暂停</h1>
+          <p class="subtitle">喘口气，随时可以继续</p>
+        </div>
+        <p id="pauseInfo" class="pause-info">第 1 关 · 0 / 300</p>
+        <div class="btn-row">
+          <button id="btnResume" class="btn-main">继 续 游 戏</button>
+          <button id="btnPauseRestart" class="btn-ghost">重新开始本关</button>
+          <button id="btnPauseHome" class="btn-ghost">返回主页面</button>
+        </div>
+        <p class="tips">按 ESC 也可以继续</p>
+      </div>
+    </div>
+
+    <!-- ===== 结束界面 ===== -->
+    <div id="overlayOver" class="overlay hidden" data-page-node-id="I44aCeRxxERACDiUtdefgw">
+      <div class="panel" data-page-node-id="BH3451UYJ2ZPBg12uAbYZo">
+        <div class="logo" data-page-node-id="OLwAOzWNxV22AncnKrwfF1">
+          <span id="overIcon" class="logo-bomb" data-page-node-id="jYQlzWGuG3ffYK10QfY8il">✸</span>
+          <h1 id="overTitle" data-page-node-id="RFzYc3yFlMXBDxn79AGzVh">游戏结束</h1>
+          <p id="overSub" class="subtitle" data-page-node-id="zaVeb5ugL3aDimlQ5Acm3n">再来一局试试更高的分数</p>
+        </div>
+        <!-- 分数结算只有无尽模式才显示；闯关模式只提示解锁进度 -->
+        <div id="resultBox" class="result hidden" data-page-node-id="s5pAPkxE9SVJ94biFxRvmF">
+          <div class="result-item" data-page-node-id="jhb9NS8SnMLGuceMWCxw5R">
+            <span class="result-num" id="finalScore" data-page-node-id="qOyliR50ObrBVSbXvf0YNH">0</span>
+            <span class="result-label" data-page-node-id="YGip7awRZYC7JhmjKVwdum">本局得分</span>
+          </div>
+          <div class="result-item" data-page-node-id="aQY31BwEV8GoGFElcklwRf">
+            <span class="result-num" id="bestScore" data-page-node-id="2ntBbSyMp0RI0v2l8UfFdN">0</span>
+            <span class="result-label" data-page-node-id="8wVQ6wskdTdgZgrsap2BsS">历史最高</span>
+          </div>
+        </div>
+        <p id="newRecord" class="new-record hidden" data-page-node-id="kCMHn2J1SHS7KnwuUl5gG4">🎉 新纪录！</p>
+        <div class="btn-row">
+          <button id="btnPrimary" class="btn-main" data-page-node-id="ZPOc2KL5VC9LeqByvy5Dz9">再 来 一 次</button>
+          <button id="btnSecondary" class="btn-ghost">返回关卡选择</button>
+        </div>
+        <p class="tips" data-page-node-id="6bNUFACTIjugXsI1tCPvIc">按 空格 / 回车 也可以继续</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 背景音乐：用 <audio> 元素，file:// 直接打开时不会被 fetch 拦截。
+     不要加 loop —— 顺序轮播由 game.js 里监听 ended 事件接管。 -->
+<audio id="bgm" preload="auto"></audio>
+
+<!-- 开发期防缓存：每次刷新都拉最新的 JS，改完配置立刻生效。
+     以后要上线发布时，可以改回下面注释掉的静态写法：
+     <script src="js/config.js"></script> ... -->
+<script>
+  ['js/config.js', 'js/sprites.js', 'js/game.js'].forEach(function (src) {
+    document.write('<script src="' + src + '?t=' + Date.now() + '"><\/script>');
+  });
+</script>
+</body>
+</html>

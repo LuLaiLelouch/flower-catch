@@ -1,0 +1,17 @@
+# 编辑器 / 系统文件
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 临时文件与备份
+*.tmp
+*.bak
+*.log
+*~
+
+# 依赖 / 构建产物
+node_modules/
+dist/
+build/
