@@ -121,7 +121,7 @@ for (const f of ['js/config.js', 'js/sprites.js', 'js/game.js']) {
     // 只在这个 vm 沙箱里把内部状态暴露出来，用于构造确定性碰撞场景；
     // 磁盘上的游戏文件不受影响，浏览器里也不会有 __test。
     src = src.replace(/\}\)\(\);\s*$/,
-      'globalThis.__test = { state, makeItem, healUp, takeDamage, renderLives, hitRect, submitBoard, renderBoard, gameOver, addScore, flushRunRecord };\n})();');
+      'globalThis.__test = { state, makeItem, healUp, takeDamage, renderLives, hitRect, submitBoard, renderBoard, gameOver, addScore, flushRunRecord, layout, topOffsets: () => ({ throwerFootY, dropStartY, W, H, groundY: GROUND_Y, hudBottom: H * 0.19 }) };\n})();');
   }
   run_(src);
 }
@@ -638,6 +638,71 @@ async function avgDeath(extra, label) {
   assert(!String(el('boardList').innerHTML).includes('路赖OvO'), 'D：面板立刻刷新成空榜');
   assert(!el('boardEmpty').__classes.has('hidden'), 'D：空榜单占位提示出现');
   el('btnBoardClose').dispatch('click');
+
+  /* ---- 16. 自适应缩放：竖屏所有游戏物体一起缩小 ----
+     用户反馈「手机竖屏空间太小、炸弹太大躲不开」。
+     核心：makeItem 的 size 同时用于绘制和碰撞判定，所以只要它乘
+     VIEW.scale，视觉与判定就会同步缩，不会出现"看着小、判定还大"。 */
+  console.log('\n[16] 自适应缩放（竖屏 vs 桌面）');
+
+  const appEl = el('app');
+  const deskW = appEl.clientWidth, deskH = appEl.clientHeight;
+  run_('__test.layout()');
+  const dScale = run_('VIEW.scale');
+  const dBomb = run_('__test.makeItem("bomb", 0, 400, { fallScale: 1 }).size');
+  const dRectW = run_('__test.hitRect("bomb").w');
+  console.log(`      桌面：W=${run_('VIEW.w')} scale=${dScale.toFixed(3)} 炸弹size=${dBomb.toFixed(1)} 判定宽=${dRectW.toFixed(1)}`);
+  assert(dScale > 0.95 && dScale < 1.1, '桌面缩放系数接近 1（画面完全不变）');
+  assert(Math.abs(dBomb - 26 * dScale) < 0.01, '桌面炸弹尺寸 = 26 × scale');
+
+  // 模拟手机竖屏 370×760
+  appEl.clientWidth = 370; appEl.clientHeight = 760;
+  run_('__test.layout()');
+  const pScale = run_('VIEW.scale');
+  const pBomb = run_('__test.makeItem("bomb", 0, 190, { fallScale: 1 }).size');
+  const pFlower = run_('__test.makeItem("flower", 0, 190, { fallScale: 1 }).size');
+  const pHeart = run_('__test.makeItem("heart", 0, 190, { fallScale: 1 }).size');
+  const pRectW = run_('__test.hitRect("bomb").w');
+  console.log(`      竖屏：W=${run_('VIEW.w')} scale=${pScale.toFixed(3)} 炸弹size=${pBomb.toFixed(1)} 花size=${pFlower.toFixed(1)} 爱心size=${pHeart.toFixed(1)} 判定宽=${pRectW.toFixed(1)}`);
+  assert(run_('VIEW.w') === 380, '竖屏逻辑宽度被 minW=380 兜住');
+  assert(pScale >= 0.59 && pScale <= 0.61, '竖屏缩放系数约 0.6');
+  assert(pBomb < dBomb * 0.7, `竖屏炸弹明显更小（${pBomb.toFixed(1)} < ${(dBomb * 0.7).toFixed(1)}）`);
+  assert(Math.abs(pBomb - 26 * pScale) < 0.01 &&
+         Math.abs(pFlower - 26 * pScale) < 0.01 &&
+         Math.abs(pHeart - 26 * pScale) < 0.01,
+    '炸弹 / 花 / 爱心共用同一系数，视觉与判定同步');
+  assert(pRectW < dRectW * 0.7, '竖屏接住判定框同比缩小（不会看着小、判定还大）');
+
+  // 恢复桌面尺寸，别影响收尾
+  appEl.clientWidth = deskW; appEl.clientHeight = deskH;
+  run_('__test.layout()');
+
+  /* ---- 17. 投掷者避让贴顶 HUD：窄屏下移，宽屏原位 ----
+     用户要求「UI 放回顶部 + 把投掷者往下挪让开 HUD」，并确认接受
+     下落距离变短（不改 vy0 / gravity）。 */
+  console.log('\n[17] 投掷者避让贴顶 HUD');
+
+  const desk = JSON.parse(run_('JSON.stringify(__test.topOffsets())'));
+  console.log(`      桌面：W=${desk.W} 投掷者脚底=${desk.throwerFootY.toFixed(1)} 掉落起点=${desk.dropStartY.toFixed(1)}`);
+  assert(desk.W > 820, '桌面逻辑宽度 > 820（不触发避让）');
+  assert(Math.abs(desk.throwerFootY - desk.H * 0.184) < 0.01, '桌面投掷者保持原位 H*0.184');
+  assert(Math.abs(desk.dropStartY - desk.H * 0.234) < 0.01, '桌面掉落起点保持原位 H*0.234');
+
+  appEl.clientWidth = 370; appEl.clientHeight = 760;
+  run_('__test.layout()');
+  const phone = JSON.parse(run_('JSON.stringify(__test.topOffsets())'));
+  console.log(`      竖屏：W=${phone.W} 投掷者脚底=${phone.throwerFootY.toFixed(1)} 掉落起点=${phone.dropStartY.toFixed(1)}`);
+  assert(phone.W === 380 && phone.W <= 820, '竖屏触发避让');
+  assert(phone.throwerFootY > desk.throwerFootY + 80, '竖屏投掷者明显下移');
+  assert(phone.throwerFootY - phone.hudBottom >= 155 * 0.6,
+    '投掷者头顶在 HUD 底部之下（完整露出，不被挡）');
+  assert(phone.dropStartY > phone.throwerFootY, '掉落起点仍在投掷者脚底下方，符合「往下扔」');
+  const dDist = desk.groundY - desk.dropStartY, pDist = phone.groundY - phone.dropStartY;
+  console.log(`      下落距离：桌面 ${dDist.toFixed(0)} → 竖屏 ${pDist.toFixed(0)}（-${((1 - pDist / dDist) * 100).toFixed(0)}%）`);
+  assert(pDist < dDist * 0.8, '下落距离确实变短（用户已确认接受变难）');
+
+  appEl.clientWidth = deskW; appEl.clientHeight = deskH;
+  run_('__test.layout()');
 
   done();
 })();

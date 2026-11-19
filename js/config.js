@@ -246,7 +246,7 @@ const VIEW = {
   w: CONFIG.canvas.refW,
   h: CONFIG.canvas.baseH,
   groundY: Math.round(CONFIG.canvas.baseH * 0.793),
-  scale: 1,   // = w / refW，用于角色/装饰的等比缩放
+  scale: 1,   // 统一缩放系数：由 layout() 按舞台宽度重算（桌面 1.0，手机竖屏约 0.6）
 };
 
 /* -------------------------------------------------------------------------

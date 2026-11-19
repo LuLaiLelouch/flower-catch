@@ -13,6 +13,10 @@
   let marginX = CONFIG.player.margin;
   let basketW = CONFIG.player.basketWidth;
   let dpr = 1;
+  // 投掷者脚底 / 掉落物起点（逻辑坐标）：由 layout() 按设备重算，
+  // 窄屏时一起下移，给贴顶的两行 HUD 让出位置
+  let throwerFootY = H * 0.184;
+  let dropStartY = H * 0.234;
 
   // 与 sprites.js 中 drawPlayer 的骨架保持一致（方便以后换素材时只改一处）
   const PLAYER = {
@@ -775,12 +779,12 @@
     const f = FLOWERS[kind] || FLOWERS[0];
     return {
       x: Math.max(30, Math.min(W - 30, x)),
-      y: H * 0.234,
+      y: dropStartY,
       vx: (Math.random() * 2 - 1) * 45,
       vy: (CONFIG.item.vy0 + Math.random() * 25) * cfg.fallScale *
           (type === 'bomb' ? (cfg.bombFall || 1) : 1),
       rot: Math.random() * Math.PI,
-      size: CONFIG.item.radius * (type === 'flower' ? f.size : 1),
+      size: CONFIG.item.radius * (type === 'flower' ? f.size : 1) * VIEW.scale,
       type,
       kind,
       fuseT: 0,
@@ -1205,11 +1209,27 @@
     marginX = Math.round(Math.min(CONFIG.player.margin, W * 0.11));
     basketW = Math.round(Math.min(124, Math.max(88, W * 0.115)));
 
-    // VIEW 供 sprites.js 做等比缩放（限制范围，避免窄屏角色过小 / 宽屏过大）
+    // 统一缩放系数：玩家角色、投掷者、掉落物、碰撞判定、背景装饰全用它。
+    // 桌面 refW=900 → 1.0（完全不变）；手机竖屏 W=380 时 W/refW≈0.42，
+    // 用 0.6 兜底避免缩得太小看不清，同时让炸弹相对可移动范围不再过大。
+    // 宽屏上限 1.1 保持原样，所以平板/电脑的手感和画面都不受影响。
     VIEW.w = W;
     VIEW.h = H;
     VIEW.groundY = GROUND_Y;
-    VIEW.scale = Math.min(1.1, Math.max(0.74, W / c.refW));
+    VIEW.scale = Math.min(1.1, Math.max(0.6, W / c.refW));
+
+    /* 窄屏（逻辑宽度 ≤ 820，手机 / 小平板竖屏）HUD 贴顶占两行，会盖住
+       原本画在 H*0.184 的投掷者。把她的脚底下移到「HUD 底部 + 角色高度 + 余量」，
+       掉落物起点按原来的相对差一起下移。宽屏完全不动，保持原画面与下落节奏。
+       注意：这里只改位置，不改 vy0 / gravity —— 用户已确认接受下落距离变短。 */
+    if (W <= 820) {
+      const throwerH = 155 * VIEW.scale;   // 与 sprites.js drawThrower 的图片框高一致
+      throwerFootY = H * 0.19 + throwerH + 8;
+      dropStartY = throwerFootY + H * 0.05;
+    } else {
+      throwerFootY = H * 0.184;
+      dropStartY = H * 0.234;
+    }
 
     // 舞台显示尺寸：按 contain 等比铺满可用区域
     const s = Math.min(availW / W, availH / H);
@@ -1432,7 +1452,7 @@
     drawBackground();
 
     // 投掷者
-    drawThrower(ctx, state.throwerX, H * 0.184, state.time, state.throwPhase);
+    drawThrower(ctx, state.throwerX, throwerFootY, state.time, state.throwPhase);
 
     drawItems();
 

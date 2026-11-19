@@ -320,12 +320,17 @@ function drawBasket(ctx, cx, cy, w, h) {
 function drawThrower(ctx, x, y, t, throwPhase = 0) {
   const footY = y;
   const headR = 22;
+  const s = VIEW.scale;   // 和玩家 / 掉落物共用同一个系数，窄屏一起变小
 
-  const tw = 120 * assetScale('thrower');
-  const th = 155 * assetScale('thrower');
+  const tw = 120 * assetScale('thrower') * s;
+  const th = 155 * assetScale('thrower') * s;
   if (drawAsset(ctx, 'thrower', x, footY, tw, th, 'bottom')) return;
 
   ctx.save();
+  // 矢量造型以脚底为中心整体等比缩放，避免只缩图片、不缩手绘版
+  ctx.translate(x, footY);
+  ctx.scale(s, s);
+  ctx.translate(-x, -footY);
   // 蹲下去的特制云朵座台
   drawCloud(ctx, x, footY + 18, 1.15, 0.95);
 
