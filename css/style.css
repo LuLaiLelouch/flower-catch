@@ -545,6 +545,149 @@ body {
   animation: pop .5s ease;
 }
 
+/* ======================= 无尽排行榜 ======================= */
+/* 首页：上榜 ID 输入 + 排行榜按钮 */
+.id-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  gap: clamp(6px, 1.6cqw, 10px);
+  margin-top: 10px;
+}
+
+.id-label {
+  font-size: 12px;
+  font-size: clamp(11px, 2.4cqw, 13px);
+  font-weight: 700;
+  color: var(--ink-soft);
+  letter-spacing: 1px;
+  white-space: nowrap;
+}
+
+.id-input {
+  flex: 1;
+  min-width: 0;
+  font-family: inherit;
+  font-size: 14px;
+  font-size: clamp(12px, 2.9cqw, 14px);
+  font-weight: 700;
+  color: var(--ink);
+  padding: 8px 12px;
+  padding: clamp(6px, 1.7cqw, 9px) 12px;
+  border: 2px solid #dfe6f0;
+  border-radius: 12px;
+  background: #fff;
+  outline: none;
+  transition: border-color .15s ease;
+}
+
+.id-input:focus { border-color: #ffb457; }
+
+.btn-board {
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  font-size: clamp(11px, 2.7cqw, 13px);
+  font-weight: 800;
+  letter-spacing: 1px;
+  white-space: nowrap;
+  color: #fff;
+  padding: 9px 14px;
+  padding: clamp(7px, 1.9cqw, 9px) 14px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #4d7dd6, #6c9be8);
+  box-shadow: var(--shadow);
+  transition: transform .12s ease;
+}
+
+.btn-board:hover  { transform: translateY(-1px); }
+.btn-board:active { transform: translateY(2px); }
+
+/* 排行榜面板 */
+.board-panel { max-width: 420px; }
+
+.board-list {
+  list-style: none;
+  margin: 6px 0 14px;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  max-height: min(46vh, 300px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.board-row {
+  display: grid;
+  grid-template-columns: 2.4em 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-radius: 12px;
+  background: #f3f6fb;
+  font-size: 14px;
+  font-size: clamp(12px, 2.9cqw, 14px);
+}
+
+.board-row.me { background: #fff3e0; }   /* 自己的纪录高亮 */
+
+.board-rank { font-size: 1.05em; text-align: center; }
+
+.board-name {
+  font-weight: 700;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 同名玩家的编号：透明灰色小字，跟在 ID 后面 */
+.board-tag {
+  font-style: normal;
+  font-size: .74em;
+  font-weight: 700;
+  color: rgba(125, 135, 158, .62);
+  letter-spacing: 0;
+  vertical-align: baseline;
+}
+
+.board-score {
+  font-weight: 800;
+  color: #ff8a3d;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 结算面板里的"上榜"一行 */
+.record-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  gap: clamp(6px, 1.6cqw, 10px);
+  margin: 0 0 14px;
+}
+
+.record-box .id-input { flex: 0 1 180px; }
+
+.btn-record {
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  color: #fff;
+  padding: 8px 14px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #ff7a59, #ffb457);
+  box-shadow: var(--shadow);
+  transition: transform .12s ease;
+}
+
+.btn-record:hover  { transform: translateY(-1px); }
+.btn-record:active { transform: translateY(2px); }
+
 @media (max-width: 640px) {
   .panel { padding: 24px 20px 20px; }
   .panel h1 { font-size: 24px; }

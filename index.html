@@ -66,6 +66,13 @@
         <!-- 关卡格子：由 game.js 按存档生成，未解锁的会锁住 -->
         <div id="levelGrid" class="level-grid"></div>
 
+        <!-- 上榜 ID + 排行榜入口：ID 可改，存浏览器；排行榜只有无尽模式分数 -->
+        <div class="id-row">
+          <label class="id-label" for="playerId">上榜 ID</label>
+          <input id="playerId" class="id-input" maxlength="12" placeholder="童琴99" autocomplete="off">
+          <button id="btnBoard" class="btn-board" type="button">🏆 排行榜</button>
+        </div>
+
         <button id="btnEndless" class="btn-endless locked">∞ 无尽模式</button>
         <p id="endlessHint" class="start-hint">通关第 5 关后解锁</p>
 
@@ -92,6 +99,20 @@
       </div>
     </div>
 
+    <!-- ===== 排行榜（无尽模式最高分） ===== -->
+    <div id="overlayBoard" class="overlay hidden">
+      <div class="panel board-panel">
+        <div class="logo">
+          <span class="logo-flower">🏆</span>
+          <h1>无尽排行榜</h1>
+          <p class="subtitle">不同玩家的最高分 · 同名玩家以灰色编号区分</p>
+        </div>
+        <ol id="boardList" class="board-list"></ol>
+        <p id="boardEmpty" class="start-hint hidden">暂无记录 · 去无尽模式创造第一个纪录</p>
+        <button id="btnBoardClose" class="btn-main">关 闭</button>
+      </div>
+    </div>
+
     <!-- ===== 结束界面 ===== -->
     <div id="overlayOver" class="overlay hidden" data-page-node-id="I44aCeRxxERACDiUtdefgw">
       <div class="panel" data-page-node-id="BH3451UYJ2ZPBg12uAbYZo">
@@ -112,6 +133,12 @@
           </div>
         </div>
         <p id="newRecord" class="new-record hidden" data-page-node-id="kCMHn2J1SHS7KnwuUl5gG4">🎉 新纪录！</p>
+        <!-- 无尽模式破纪录时出现：确认上榜 ID，留空用默认 ID；不点"上榜"直接关面板也会自动提交 -->
+        <div id="recordBox" class="record-box hidden">
+          <span class="id-label">上榜 ID</span>
+          <input id="recordId" class="id-input" maxlength="12" placeholder="童琴99" autocomplete="off">
+          <button id="btnRecord" class="btn-record" type="button">上 榜</button>
+        </div>
         <div class="btn-row">
           <button id="btnPrimary" class="btn-main" data-page-node-id="ZPOc2KL5VC9LeqByvy5Dz9">再 来 一 次</button>
           <button id="btnSecondary" class="btn-ghost">返回关卡选择</button>

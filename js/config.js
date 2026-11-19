@@ -211,6 +211,17 @@ const CONFIG = {
 
   lives: 3,              // 总生命值
 
+  /* 无尽模式排行榜（本地版）：数据全部存在浏览器 localStorage，没有服务器。
+     破纪录时弹输入框确认上榜 ID；不同玩家用了同一个 ID 时，按"主机指纹"
+     （首次运行随机生成并永久保存）分配互不冲突的编号，排行榜里以灰色显示。 */
+  board: {
+    defaultId: '童琴99',                       // 默认上榜 ID
+    key: 'flower-catch-leaderboard-v1',       // 排行榜数据
+    playerIdKey: 'flower-catch-player-id-v1', // 玩家自己的上榜 ID
+    hostKey: 'flower-catch-host-key-v1',      // 主机指纹（同 ID 编号的依据）
+    max: 50,                                   // 排行榜最多保留几条
+  },
+
   /* 自适应画布：逻辑高度固定，逻辑宽度随设备屏幕比例自动伸缩，
      这样电脑 / 平板 / 手机（横屏竖屏）都不会变形也不会被裁切 */
   canvas: {

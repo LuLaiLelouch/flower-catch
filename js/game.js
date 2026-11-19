@@ -69,6 +69,15 @@
     btnPrimary: document.getElementById('btnPrimary'),
     btnSecondary: document.getElementById('btnSecondary'),
     btnSound: document.getElementById('btnSound'),
+    playerId: document.getElementById('playerId'),
+    btnBoard: document.getElementById('btnBoard'),
+    board: document.getElementById('overlayBoard'),
+    boardList: document.getElementById('boardList'),
+    boardEmpty: document.getElementById('boardEmpty'),
+    btnBoardClose: document.getElementById('btnBoardClose'),
+    recordBox: document.getElementById('recordBox'),
+    recordId: document.getElementById('recordId'),
+    btnRecord: document.getElementById('btnRecord'),
   };
 
   /* --------------------- 存档：解锁进度 / 无尽最高分 ---------------------
@@ -128,6 +137,7 @@
     grassTufts: [],
     sound: localStorage.getItem('flower-catch-sound') !== 'off',   // 音效（接花/爆炸/死亡）
     music: localStorage.getItem('flower-catch-music') !== 'off',   // 背景音乐，跟音效分开存
+    playerId: localStorage.getItem(CONFIG.board.playerIdKey) || CONFIG.board.defaultId,  // 排行榜 ID
   };
 
   /* 接东西的判定框 —— 花朵和炸弹用不同的框：
@@ -527,6 +537,82 @@
     renderMenu();
   }
 
+  /* --------------------- 无尽模式排行榜（本地版） ---------------------
+     数据存在浏览器 localStorage，没有服务器；以后接后端只换 boardStore 两个函数。
+     同名玩家的编号：按"主机指纹"分配 —— 首次运行生成随机标识并永久保存，
+     同一台机器永远拿同一个编号，不同机器互不冲突。编号只在同名玩家超过
+     一个时才显示（排行榜里透明灰色小字）。 */
+  const esc = s => String(s).replace(/[&<>"']/g,
+    c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  const boardStore = {
+    load() {
+      try { return JSON.parse(localStorage.getItem(CONFIG.board.key) || '[]'); }
+      catch (e) { return []; }
+    },
+    save(list) {
+      try { localStorage.setItem(CONFIG.board.key, JSON.stringify(list)); } catch (e) {}
+    },
+  };
+
+  function hostKey() {
+    let k = null;
+    try { k = localStorage.getItem(CONFIG.board.hostKey); } catch (e) {}
+    if (!k) {
+      k = 'H' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+      try { localStorage.setItem(CONFIG.board.hostKey, k); } catch (e) {}
+    }
+    return k;
+  }
+
+  // 上榜：同名 + 同主机 → 更新自己的最高分；否则按主机指纹分配新编号
+  function submitBoard(rawId) {
+    const id = String(rawId == null ? el.recordId.value : rawId).trim() || CONFIG.board.defaultId;
+    state.playerId = id;
+    try { localStorage.setItem(CONFIG.board.playerIdKey, id); } catch (e) {}
+    el.playerId.value = id;                        // 首页 ID 跟着同步
+    el.recordId.value = id;
+
+    const list = boardStore.load();
+    const host = hostKey();
+    const mine = list.find(e => e.id === id && e.host === host);
+    if (mine) {
+      mine.score = Math.max(mine.score, state.score);
+      mine.at = Date.now();
+    } else {
+      const same = list.filter(e => e.id === id);
+      const tag = same.length ? Math.max(...same.map(e => e.tag || 1)) + 1 : 1;
+      list.push({ id, tag, host, score: state.score, at: Date.now() });
+    }
+    list.sort((a, b) => b.score - a.score || a.at - b.at);
+    boardStore.save(list.slice(0, CONFIG.board.max));
+    el.recordBox.classList.add('hidden');           // 已上榜，收起输入区（也当作"已提交"标记）
+  }
+
+  // 结算面板的两个按钮被点时：还没手动上榜的话，用输入框当前值自动提交
+  function flushBoard() {
+    if (el.recordBox.classList.contains('hidden')) return;
+    submitBoard();
+  }
+
+  function renderBoard() {
+    const list = boardStore.load();
+    const counts = {};
+    list.forEach(e => { counts[e.id] = (counts[e.id] || 0) + 1; });
+    const host = hostKey();
+    el.boardList.innerHTML = list.map((e, i) => {
+      const tag = counts[e.id] > 1 ? ` <i class="board-tag">#${e.tag || 1}</i>` : '';
+      const medal = ['🥇', '🥈', '🥉'][i] || `${i + 1}`;
+      return `<li class="board-row${e.host === host ? ' me' : ''}">
+        <b class="board-rank">${medal}</b>
+        <span class="board-name">${esc(e.id)}${tag}</span>
+        <span class="board-score">${e.score}</span>
+      </li>`;
+    }).join('');
+    el.boardList.classList.toggle('hidden', !list.length);
+    el.boardEmpty.classList.toggle('hidden', !!list.length);
+  }
+
   /* 结束面板：标题 + 副标题 + 主按钮 + 次按钮；只有无尽模式带分数结算 */
   function showPanel(opt) {
     state.phase = opt.phase;
@@ -539,12 +625,17 @@
     pendingPrimary = opt.onPrimary;
     pendingSecondary = opt.onSecondary;
     el.newRecord.classList.add('hidden');
+    el.recordBox.classList.add('hidden');      // 只有破纪录的结算才重新亮出来
 
     if (opt.showResult) {
       const isNew = state.score > state.best;
       if (isNew) {
         state.best = state.score;
         try { localStorage.setItem(CONFIG.endlessBestKey, String(state.best)); } catch (e) {}
+        // 新纪录 → 亮出"上榜 ID"输入行；点"上榜"立即写入，
+        // 不点就关面板（再来一次 / 返回菜单）也会自动提交
+        el.recordId.value = state.playerId;
+        el.recordBox.classList.remove('hidden');
       }
       el.finalScore.textContent = state.score;
       el.bestScore.textContent = state.best;
@@ -1398,7 +1489,7 @@
     if (panelPhase && (k === ' ' || k === 'enter')) {
       e.preventDefault();
       if (state.phase === 'menu') startLatest();
-      else if (pendingPrimary) pendingPrimary();
+      else if (pendingPrimary) { flushBoard(); pendingPrimary(); }
     }
   };
   const keyUp = e => {
@@ -1411,8 +1502,9 @@
 
   el.btnStart.addEventListener('click', startLatest);
   el.btnEndless.addEventListener('click', startEndless);
-  el.btnPrimary.addEventListener('click', () => pendingPrimary && pendingPrimary());
-  el.btnSecondary.addEventListener('click', () => pendingSecondary && pendingSecondary());
+  // 面板上任何一个"离开"动作都先把没提交的新纪录落榜（空 ID → 默认童琴99）
+  el.btnPrimary.addEventListener('click', () => { flushBoard(); pendingPrimary && pendingPrimary(); });
+  el.btnSecondary.addEventListener('click', () => { flushBoard(); pendingSecondary && pendingSecondary(); });
   el.btnReset.addEventListener('click', () => {
     if (!window.confirm('确定清空所有进度吗？已解锁的关卡会全部锁回去，需要重新从第 1 关打起。')) return;
     progress.unlocked = 1;
@@ -1424,6 +1516,21 @@
   el.btnResume.addEventListener('click', resumeGame);
   el.btnPauseRestart.addEventListener('click', () => enterGame(state.mode, state.level));
   el.btnPauseHome.addEventListener('click', backToMenu);
+
+  /* --------------------- 排行榜交互 --------------------- */
+  // 首页改 ID：留空自动回退默认 ID，持久保存
+  el.playerId.addEventListener('change', () => {
+    const v = el.playerId.value.trim() || CONFIG.board.defaultId;
+    state.playerId = v;
+    el.playerId.value = v;
+    try { localStorage.setItem(CONFIG.board.playerIdKey, v); } catch (e) {}
+  });
+  el.btnBoard.addEventListener('click', () => {
+    renderBoard();
+    el.board.classList.remove('hidden');
+  });
+  el.btnBoardClose.addEventListener('click', () => el.board.classList.add('hidden'));
+  el.btnRecord.addEventListener('click', () => submitBoard());
   /* 两个独立的声音开关：
        #btnSound 只管接花 / 爆炸 / 死亡等实时合成的音效
        #btnMusic 只管 BGM 播放列表
@@ -1482,6 +1589,7 @@
   renderLives();
   renderMenu();
   syncHud();
+  el.playerId.value = state.playerId;   // 首页 ID 输入框：上次用的 ID，没设置过就是默认值
   el.btnSound.classList.toggle('muted', !state.sound);
   el.btnMusic.classList.toggle('muted', !state.music);
   requestAnimationFrame(loop);

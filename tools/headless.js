@@ -121,7 +121,7 @@ for (const f of ['js/config.js', 'js/sprites.js', 'js/game.js']) {
     // 只在这个 vm 沙箱里把内部状态暴露出来，用于构造确定性碰撞场景；
     // 磁盘上的游戏文件不受影响，浏览器里也不会有 __test。
     src = src.replace(/\}\)\(\);\s*$/,
-      'globalThis.__test = { state, makeItem, healUp, takeDamage, renderLives, hitRect };\n})();');
+      'globalThis.__test = { state, makeItem, healUp, takeDamage, renderLives, hitRect, submitBoard, renderBoard, gameOver };\n})();');
   }
   run_(src);
 }
@@ -481,6 +481,65 @@ async function avgDeath(extra, label) {
   const after12 = emptyHearts();
   console.log(`      一帧后剩余空格：${after12}（0 = 回血保住了，1 = 被炸弹抵消）`);
   assert(after12 === 0, '吃到爱心后血量真的 +1，不会被同帧炸弹抵消');
+
+  /* ---- 13. 无尽模式排行榜（本地版） ---- */
+  console.log('\n[13] 无尽排行榜');
+  el('overlayBoard').classList.add('hidden');       // 模拟 HTML 里的 class="overlay hidden"
+
+  // a. 首页 ID 默认值
+  assert(el('playerId').value === '童琴99', '首页 ID 默认「童琴99」（实际：' + el('playerId').value + '）');
+
+  // b. 改 ID 并持久化
+  el('playerId').value = '路赖OvO';
+  el('playerId').dispatch('change');
+  assert(store['flower-catch-player-id-v1'] === '路赖OvO', '改完 ID 已保存');
+
+  // c. 排行榜面板开 / 关
+  el('btnBoard').dispatch('click');
+  assert(!el('overlayBoard').__classes.has('hidden'), '点「排行榜」面板弹出');
+  assert(el('boardList').__classes.has('hidden'), '空榜单时列表隐藏、显示占位提示');
+  el('btnBoardClose').dispatch('click');
+  assert(el('overlayBoard').__classes.has('hidden'), '点「关闭」面板收起');
+
+  // d. 当前主机首次上榜
+  run_('__test.state.score = 5000; __test.submitBoard("路赖OvO");');
+  let board = JSON.parse(store['flower-catch-leaderboard-v1']);
+  assert(board.length === 1 && board[0].id === '路赖OvO' && board[0].score === 5000,
+    '首次上榜写入一条（' + board[0].id + ' · ' + board[0].score + ' 分）');
+  assert(board[0].tag === 1, '首个该 ID 的玩家编号为 1');
+
+  // e. 同名玩家、不同主机 → 拿到互不冲突的新编号
+  run_('(function(){ localStorage.setItem("flower-catch-host-key-v1", "H-guest-host"); __test.state.score = 3000; __test.submitBoard("路赖OvO"); })()');
+  board = JSON.parse(store['flower-catch-leaderboard-v1']);
+  assert(board.length === 2, '不同主机同名玩家各占一条');
+  assert(new Set(board.map(e => e.tag)).size === 2, '编号互不冲突：#' + board.map(e => e.tag).join(' / #'));
+  assert(board[0].score === 5000 && board[1].score === 3000, '按分数降序（5000 → 3000）');
+
+  // f. 渲染：同名冲突时两条都带灰色编号
+  run_('__test.renderBoard();');
+  const bHtml = String(el('boardList').innerHTML);
+  assert((bHtml.match(/board-tag/g) || []).length === 2, '同名条目显示编号');
+  assert(bHtml.includes('#1') && bHtml.includes('#2'), '编号 1 / 2 都渲染出来');
+  assert(bHtml.includes('路赖OvO') && !bHtml.includes('&lt;'), 'ID 正常转义输出');
+
+  // g. 同主机再上榜 → 更新自己的最高分而不是新增条目
+  run_('(function(){ localStorage.setItem("flower-catch-host-key-v1", "H-guest-host"); __test.state.score = 4200; __test.submitBoard("路赖OvO"); })()');
+  board = JSON.parse(store['flower-catch-leaderboard-v1']);
+  assert(board.length === 2 && board.some(e => e.score === 4200),
+    '同主机同名上榜是更新而非新增（现在 ' + board.map(e => e.score).join(' / ') + '）');
+
+  // h. 无尽破纪录 → 结算面板出现上榜输入行；空 ID 自动用默认值落榜
+  run_('(function(){ __test.state.mode = "endless"; __test.state.phase = "playing"; __test.state.lives = 0; __test.state.score = 123; __test.state.best = 0; __test.gameOver(); })()');
+  await sleep(1500);                                // 等死亡动画播完、面板弹出
+  assert(!el('overlayOver').__classes.has('hidden'), '结算面板已弹出');
+  assert(!el('recordBox').__classes.has('hidden'), '破纪录出现「上榜 ID」输入行');
+  assert(el('recordId').value === '路赖OvO', '输入行预填当前 ID');
+  el('recordId').value = '';                        // 留空 → 应自动用默认 ID
+  el('btnSecondary').dispatch('click');            // 直接关面板 → 自动提交
+  board = JSON.parse(store['flower-catch-leaderboard-v1']);
+  assert(board.some(e => e.id === '童琴99'), '空 ID 自动以默认「童琴99」上榜');
+  assert(el('recordBox').__classes.has('hidden'), '上榜后输入行收起');
+  assert(board.length === 3, '榜单共 3 条（路赖OvO ×2 + 童琴99 ×1）');
 
   done();
 })();
