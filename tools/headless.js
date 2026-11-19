@@ -121,7 +121,7 @@ for (const f of ['js/config.js', 'js/sprites.js', 'js/game.js']) {
     // 只在这个 vm 沙箱里把内部状态暴露出来，用于构造确定性碰撞场景；
     // 磁盘上的游戏文件不受影响，浏览器里也不会有 __test。
     src = src.replace(/\}\)\(\);\s*$/,
-      'globalThis.__test = { state, makeItem, healUp, takeDamage, renderLives, hitRect, submitBoard, renderBoard, gameOver };\n})();');
+      'globalThis.__test = { state, makeItem, healUp, takeDamage, renderLives, hitRect, submitBoard, renderBoard, gameOver, addScore, flushRunRecord };\n})();');
   }
   run_(src);
 }
@@ -485,6 +485,8 @@ async function avgDeath(extra, label) {
   /* ---- 13. 无尽模式排行榜（本地版） ---- */
   console.log('\n[13] 无尽排行榜');
   el('overlayBoard').classList.add('hidden');       // 模拟 HTML 里的 class="overlay hidden"
+  // 前面 [8]/[11] 的无尽模式现在会实时落榜，这里从空榜开始，保证下面的条数断言干净
+  delete store['flower-catch-leaderboard-v1'];
 
   // a. 首页 ID 默认值
   assert(el('playerId').value === '童琴99', '首页 ID 默认「童琴99」（实际：' + el('playerId').value + '）');
@@ -529,7 +531,7 @@ async function avgDeath(extra, label) {
     '同主机同名上榜是更新而非新增（现在 ' + board.map(e => e.score).join(' / ') + '）');
 
   // h. 无尽破纪录 → 结算面板出现上榜输入行；空 ID 自动用默认值落榜
-  run_('(function(){ __test.state.mode = "endless"; __test.state.phase = "playing"; __test.state.lives = 0; __test.state.score = 123; __test.state.best = 0; __test.gameOver(); })()');
+  run_('(function(){ __test.state.mode = "endless"; __test.state.phase = "playing"; __test.state.lives = 0; __test.state.score = 123; __test.state.best = 0; __test.state.runBest = 0; __test.gameOver(); })()');
   await sleep(1500);                                // 等死亡动画播完、面板弹出
   assert(!el('overlayOver').__classes.has('hidden'), '结算面板已弹出');
   assert(!el('recordBox').__classes.has('hidden'), '破纪录出现「上榜 ID」输入行');
@@ -540,6 +542,102 @@ async function avgDeath(extra, label) {
   assert(board.some(e => e.id === '童琴99'), '空 ID 自动以默认「童琴99」上榜');
   assert(el('recordBox').__classes.has('hidden'), '上榜后输入行收起');
   assert(board.length === 3, '榜单共 3 条（路赖OvO ×2 + 童琴99 ×1）');
+
+  /* ---- 14. 退出路径：打完回首页必须能看到排名 ----
+     用户反馈「打完之后退出到首页点开排行榜没看到有排名」。
+     根因：上榜只挂在结算面板的按钮上，主动退出（暂停→返回主页面）没有
+     结算面板，成绩整个丢了。修法 = 破纪录实时落榜 + 离开兜底。 */
+  console.log('\n[14] 退出路径与排行榜');
+
+  // 路径 A：阵亡结算 → 返回菜单 → 点排行榜
+  delete store['flower-catch-leaderboard-v1'];
+  run_('(function(){ const s=__test.state; s.best=0; s.runBest=0; s.playerId="童琴99"; s.mode="endless"; s.phase="playing"; s.score=400; s.lives=0; __test.gameOver(); })()');
+  await sleep(1500);
+  assert(!el('recordBox').__classes.has('hidden'), 'A：阵亡破纪录出现上榜输入行');
+  el('btnSecondary').dispatch('click');           // 返回菜单 → 自动提交
+  el('btnBoard').dispatch('click');
+  assert(String(el('boardList').innerHTML).includes('童琴99'), 'A：阵亡结算后排行榜能看到排名');
+  el('btnBoardClose').dispatch('click');
+
+  // 路径 B：没阵亡，暂停 → 返回主页面 → 点排行榜（用户实际走的路，修复前榜单是空的）
+  delete store['flower-catch-leaderboard-v1'];
+  run_('(function(){ const s=__test.state; s.mode="endless"; s.phase="playing"; s.score=600; s.best=0; s.runBest=0; s.lives=3; s.playerId="童琴99"; })()');
+  el('btnPause').dispatch('click');
+  el('btnPauseHome').dispatch('click');
+  el('btnBoard').dispatch('click');
+  assert(String(el('boardList').innerHTML).includes('童琴99'),
+    'B：暂停返回主页面后排行榜也能看到排名');
+  assert(el('boardEmpty').__classes.has('hidden'), 'B：空榜单提示已收起');
+  el('btnBoardClose').dispatch('click');
+
+  // 路径 C：不点任何面板，接花破纪录的瞬间就写榜（对应"直接关掉网页 / 刷新"）
+  delete store['flower-catch-leaderboard-v1'];
+  run_('(function(){ const s=__test.state; s.mode="endless"; s.phase="playing"; s.score=0; s.best=0; s.runBest=0; s.playerId="童琴99"; s.combo=0; })()');
+  run_('__test.addScore(10, 100, 100, "#fff");');
+  let liveBoard = JSON.parse(store['flower-catch-leaderboard-v1'] || '[]');
+  assert(liveBoard.length === 1 && liveBoard[0].score === 10,
+    'C：接花破纪录瞬间就落榜，关掉网页也不会丢');
+  run_('__test.addScore(20, 100, 100, "#fff");');
+  liveBoard = JSON.parse(store['flower-catch-leaderboard-v1'] || '[]');
+  assert(liveBoard.length === 1 && liveBoard[0].score === 30,
+    'C：分数继续涨时同一条记录同步更新，不会重复上榜');
+
+  // 路径 D：暂停 → 重新开始，上一局成绩仍留在榜上
+  el('btnPause').dispatch('click');
+  el('btnPauseRestart').dispatch('click');         // enterGame → resetRun 会把本局分数清零
+  el('btnBoard').dispatch('click');
+  assert(String(el('boardList').innerHTML).includes('童琴99'),
+    'D：暂停后重新开始，上一局成绩仍在榜');
+  el('btnBoardClose').dispatch('click');
+
+  // 路径 E：闯关模式得分不污染无尽排行榜
+  delete store['flower-catch-leaderboard-v1'];
+  run_('(function(){ const s=__test.state; s.mode="level"; s.level=1; s.phase="playing"; s.score=0; s.best=0; s.runBest=0; s.playerId="童琴99"; s.combo=0; })()');
+  run_('__test.addScore(10, 100, 100, "#fff");');
+  assert(!store['flower-catch-leaderboard-v1'], 'E：闯关模式得分不写进无尽排行榜');
+
+  /* ---- 15. 测试按钮：清除历史最高分 + 排行榜 ---- */
+  console.log('\n[15] 清除分数记录（测试按钮）');
+
+  // 先造出一组完整数据
+  store['flower-catch-endless-best-v1'] = '888';
+  store['flower-catch-leaderboard-v1'] = JSON.stringify([
+    { id: '童琴99', tag: 1, host: 'H-test', score: 888, at: 1 },
+  ]);
+  store['flower-catch-progress-v1'] = JSON.stringify({ unlocked: 4, endless: true });
+  store['flower-catch-player-id-v1'] = '童琴99';
+  store['flower-catch-host-key-v1'] = 'H-test';
+
+  // A：取消确认 → 什么都不清
+  sandbox.window.confirm = () => false;
+  el('btnClearScores').dispatch('click');
+  assert(store['flower-catch-endless-best-v1'] === '888' &&
+         !!store['flower-catch-leaderboard-v1'], 'A：取消确认时数据保持不变');
+  sandbox.window.confirm = () => true;
+
+  // B：确认清除 → 两个分数键都清掉，内存状态同步归零
+  el('btnClearScores').dispatch('click');
+  assert(!store['flower-catch-endless-best-v1'], 'B：历史最高分已清除');
+  assert(!store['flower-catch-leaderboard-v1'], 'B：排行榜已清除');
+  assert(run_('__test.state.best') === 0 && run_('__test.state.runBest') === 0,
+    'B：内存里的最高分与破纪录基准同步归零');
+
+  // C：关卡进度 / ID / 主机编号保留，清完给提示
+  assert(saved().unlocked === 4 && saved().endless === true, 'C：关卡解锁进度保留');
+  assert(store['flower-catch-player-id-v1'] === '童琴99', 'C：上榜 ID 保留');
+  assert(store['flower-catch-host-key-v1'] === 'H-test', 'C：主机编号保留');
+  assert(String(el('clearMsg').textContent).includes('已清除'), 'C：清完给了页面提示');
+
+  // D：排行榜面板开着时清除 → 立刻刷新成空榜
+  store['flower-catch-leaderboard-v1'] = JSON.stringify([
+    { id: '路赖OvO', tag: 1, host: 'H-test', score: 999, at: 2 },
+  ]);
+  el('btnBoard').dispatch('click');
+  assert(String(el('boardList').innerHTML).includes('路赖OvO'), 'D：清除前榜上有一条');
+  el('btnClearScores').dispatch('click');
+  assert(!String(el('boardList').innerHTML).includes('路赖OvO'), 'D：面板立刻刷新成空榜');
+  assert(!el('boardEmpty').__classes.has('hidden'), 'D：空榜单占位提示出现');
+  el('btnBoardClose').dispatch('click');
 
   done();
 })();

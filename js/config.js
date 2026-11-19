@@ -212,8 +212,9 @@ const CONFIG = {
   lives: 3,              // 总生命值
 
   /* 无尽模式排行榜（本地版）：数据全部存在浏览器 localStorage，没有服务器。
-     破纪录时弹输入框确认上榜 ID；不同玩家用了同一个 ID 时，按"主机指纹"
-     （首次运行随机生成并永久保存）分配互不冲突的编号，排行榜里以灰色显示。 */
+     破纪录瞬间就实时落榜（主动退出 / 关网页也不丢），结算面板里可改上榜 ID；
+     不同玩家用了同一个 ID 时，按"主机指纹"（首次运行随机生成并永久保存）
+     分配互不冲突的编号，排行榜里以灰色显示。 */
   board: {
     defaultId: '童琴99',                       // 默认上榜 ID
     key: 'flower-catch-leaderboard-v1',       // 排行榜数据
@@ -263,10 +264,10 @@ const VIEW = {
    ------------------------------------------------------------------------- */
 const BGM = {
   playlist: [
+    { src: 'assets/bgm/happy-vibes.mp3',    title: 'Happy Vibes'    },
+    { src: 'assets/bgm/happy-ukulele.mp3',  title: 'Happy Ukulele'  },
     { src: 'assets/bgm/man-is-he-mega.mp3', title: 'Man Is He Mega' },
     { src: 'assets/bgm/8bit-warriors.mp3',  title: '8bit Warriors'  },
-    { src: 'assets/bgm/happy-ukulele.mp3',  title: 'Happy Ukulele'  },
-    { src: 'assets/bgm/happy-vibes.mp3',    title: 'Happy Vibes'    },
   ],
   volume: 0.34,
   fadeMs: 400,

@@ -398,6 +398,16 @@ body {
 
 .link:hover { color: #ff5c8a; }
 
+/* 「清除分数记录」按钮的临时结果提示：内容为空时不占位置 */
+.clear-msg {
+  margin-top: 6px;
+  font-size: 11.5px;
+  font-size: clamp(10px, 2.1cqw, 11.5px);
+  color: #2e9e6b;
+  text-align: center;
+}
+.clear-msg:empty { display: none; }
+
 /* ---------- 关卡选择 ---------- */
 .start-hint {
   margin-top: 7px;

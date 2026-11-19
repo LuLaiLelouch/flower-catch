@@ -65,6 +65,8 @@
     btnEndless: document.getElementById('btnEndless'),
     endlessHint: document.getElementById('endlessHint'),
     btnReset: document.getElementById('btnReset'),
+    btnClearScores: document.getElementById('btnClearScores'),
+    clearMsg: document.getElementById('clearMsg'),
     btnStart: document.getElementById('btnStart'),
     btnPrimary: document.getElementById('btnPrimary'),
     btnSecondary: document.getElementById('btnSecondary'),
@@ -110,6 +112,9 @@
     time: 0,
     score: 0,                // 闯关 = 本关分（进关清零）；无尽 = 本局累计分
     best: Number(localStorage.getItem(CONFIG.endlessBestKey) || 0),
+    // 本局开局时的历史最高分。破纪录判定只认它，不认 state.best ——
+    // 后者在游戏中会实时跟着分数涨，拿它比会永远判成"没破纪录"。
+    runBest: Number(localStorage.getItem(CONFIG.endlessBestKey) || 0),
     combo: 0,
     lives: CONFIG.lives,
     level: 1,                // 当前关卡（1 ~ LEVELS.length）
@@ -464,6 +469,7 @@
   const bannerDur = () => (state.mode === 'endless' ? ENDLESS.bannerTime : CONFIG.levels.bannerTime);
 
   function resetRun() {
+    state.runBest = state.best;   // 记下进本局之前的历史最高，供破纪录判定
     state.score = 0;
     state.combo = 0;
     state.lives = CONFIG.lives;     // 无论从哪一关开始都是满血 3 点
@@ -528,6 +534,7 @@
   const startEndless = () => { if (progress.endless) enterGame('endless'); };
 
   function backToMenu() {
+    flushRunRecord();          // 主动退出没有结算面板，先把本局成绩兜底落榜
     state.phase = 'menu';
     el.over.classList.add('hidden');
     el.pause.classList.add('hidden');
@@ -565,27 +572,32 @@
     return k;
   }
 
-  // 上榜：同名 + 同主机 → 更新自己的最高分；否则按主机指纹分配新编号
+  /* 写一条成绩：同名 + 同主机 → 更新自己的最高分；否则按主机指纹分配新编号。
+     抽成独立函数，好让"实时破纪录落榜"和"结算面板确认上榜"共用同一套规则。 */
+  function upsertBoard(id, score) {
+    const list = boardStore.load();
+    const host = hostKey();
+    const mine = list.find(e => e.id === id && e.host === host);
+    if (mine) {
+      mine.score = Math.max(mine.score, score);
+      mine.at = Date.now();
+    } else {
+      const same = list.filter(e => e.id === id);
+      const tag = same.length ? Math.max(...same.map(e => e.tag || 1)) + 1 : 1;
+      list.push({ id, tag, host, score, at: Date.now() });
+    }
+    list.sort((a, b) => b.score - a.score || a.at - b.at);
+    boardStore.save(list.slice(0, CONFIG.board.max));
+  }
+
+  // 结算面板里点「上榜」：用输入框的 ID 提交，空 ID 回退默认值
   function submitBoard(rawId) {
     const id = String(rawId == null ? el.recordId.value : rawId).trim() || CONFIG.board.defaultId;
     state.playerId = id;
     try { localStorage.setItem(CONFIG.board.playerIdKey, id); } catch (e) {}
     el.playerId.value = id;                        // 首页 ID 跟着同步
     el.recordId.value = id;
-
-    const list = boardStore.load();
-    const host = hostKey();
-    const mine = list.find(e => e.id === id && e.host === host);
-    if (mine) {
-      mine.score = Math.max(mine.score, state.score);
-      mine.at = Date.now();
-    } else {
-      const same = list.filter(e => e.id === id);
-      const tag = same.length ? Math.max(...same.map(e => e.tag || 1)) + 1 : 1;
-      list.push({ id, tag, host, score: state.score, at: Date.now() });
-    }
-    list.sort((a, b) => b.score - a.score || a.at - b.at);
-    boardStore.save(list.slice(0, CONFIG.board.max));
+    upsertBoard(id, state.score);
     el.recordBox.classList.add('hidden');           // 已上榜，收起输入区（也当作"已提交"标记）
   }
 
@@ -593,6 +605,19 @@
   function flushBoard() {
     if (el.recordBox.classList.contains('hidden')) return;
     submitBoard();
+  }
+
+  /* 离开一局时的兜底：主动退出（暂停 → 返回主页面）压根不会弹结算面板，
+     只靠面板按钮提交的话，这一局的成绩就整个丢了。
+     正常流程里 addScore 已经实时写过，这里再 upsert 一次是幂等的。 */
+  function flushRunRecord() {
+    if (state.mode !== 'endless') return;
+    if (state.score <= state.runBest) return;      // 本局没破纪录，不用上榜
+    if (state.score > state.best) {
+      state.best = state.score;
+      try { localStorage.setItem(CONFIG.endlessBestKey, String(state.best)); } catch (e) {}
+    }
+    upsertBoard(state.playerId, state.score);
   }
 
   function renderBoard() {
@@ -613,6 +638,31 @@
     el.boardEmpty.classList.toggle('hidden', !!list.length);
   }
 
+  /* 测试用：清空无尽模式历史最高分 + 排行榜成绩。
+     关卡解锁进度、上榜 ID、主机编号都保留，方便清掉测试数据重新测。 */
+  function clearScores() {
+    const ok = window.confirm(
+      '确定清除无尽模式的历史最高分和排行榜吗？\n' +
+      '关卡解锁进度、上榜 ID 会保留；此操作不可撤销。');
+    if (!ok) return;
+    try {
+      localStorage.removeItem(CONFIG.endlessBestKey);
+      localStorage.removeItem(CONFIG.board.key);
+    } catch (e) {}
+    state.best = 0;
+    state.runBest = 0;
+    // 排行榜面板正开着的话，立刻刷新成空榜，不用关掉再打开
+    if (!el.board.classList.contains('hidden')) renderBoard();
+    showClearMsg('已清除最高分与排行榜，可以重新测试了');
+  }
+
+  let clearMsgTimer = null;
+  function showClearMsg(text) {
+    el.clearMsg.textContent = text;
+    if (clearMsgTimer) clearTimeout(clearMsgTimer);
+    clearMsgTimer = setTimeout(() => { el.clearMsg.textContent = ''; }, 2600);
+  }
+
   /* 结束面板：标题 + 副标题 + 主按钮 + 次按钮；只有无尽模式带分数结算 */
   function showPanel(opt) {
     state.phase = opt.phase;
@@ -628,10 +678,15 @@
     el.recordBox.classList.add('hidden');      // 只有破纪录的结算才重新亮出来
 
     if (opt.showResult) {
-      const isNew = state.score > state.best;
+      // 判定基准是"本局开局时的历史最高分"，不是 state.best ——
+      // 后者在 addScore 里已经实时跟着分数涨了，拿它比会永远判成没破纪录。
+      const isNew = state.score > state.runBest;
       if (isNew) {
-        state.best = state.score;
-        try { localStorage.setItem(CONFIG.endlessBestKey, String(state.best)); } catch (e) {}
+        if (state.score > state.best) {
+          state.best = state.score;
+          try { localStorage.setItem(CONFIG.endlessBestKey, String(state.best)); } catch (e) {}
+        }
+        upsertBoard(state.playerId, state.score);   // 结算路径也兜一次底（幂等）
         // 新纪录 → 亮出"上榜 ID"输入行；点"上榜"立即写入，
         // 不点就关面板（再来一次 / 返回菜单）也会自动提交
         el.recordId.value = state.playerId;
@@ -816,6 +871,17 @@
     floatText(x, y, label, color || (mul > 1 ? '#ff8a3d' : '#3fa96b'));
     syncHud(true);
     checkProgress();
+
+    /* 无尽模式：分数一旦超过"本局开局时的历史最高"就实时写榜。
+       这样阵亡、暂停返回首页、甚至直接关掉网页，成绩都不会丢 ——
+       用户反馈的"打完退出到首页看不到排名"就是漏了这条路径。 */
+    if (state.mode === 'endless' && state.score > state.runBest) {
+      if (state.score > state.best) {
+        state.best = state.score;
+        try { localStorage.setItem(CONFIG.endlessBestKey, String(state.best)); } catch (e) {}
+      }
+      upsertBoard(state.playerId, state.score);
+    }
   }
 
   /* --------------------- 回血道具 / 关卡进度 --------------------- */
@@ -1512,6 +1578,7 @@
     saveProgress();
     renderMenu();
   });
+  el.btnClearScores.addEventListener('click', clearScores);
   el.btnPause.addEventListener('click', togglePause);
   el.btnResume.addEventListener('click', resumeGame);
   el.btnPauseRestart.addEventListener('click', () => enterGame(state.mode, state.level));
