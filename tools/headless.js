@@ -140,7 +140,7 @@ for (const f of ['js/config.js', 'js/sprites.js', 'js/game.js']) {
     // 只在这个 vm 沙箱里把内部状态暴露出来，用于构造确定性碰撞场景；
     // 磁盘上的游戏文件不受影响，浏览器里也不会有 __test。
     src = src.replace(/\}\)\(\);\s*$/,
-      'globalThis.__test = { state, makeItem, healUp, takeDamage, renderLives, hitRect, submitBoard, renderBoard, gameOver, addScore, flushRunRecord, layout, topOffsets: () => ({ throwerFootY, dropStartY, W, H, groundY: GROUND_Y, hudBottom: H * 0.19 }) };\n})();');
+      'globalThis.__test = { state, makeItem, healUp, takeDamage, renderLives, hitRect, submitBoard, renderBoard, gameOver, addScore, flushRunRecord, layout, topOffsets: () => ({ throwerFootY, dropStartY, W, H, groundY: GROUND_Y, hudBottom: H * 0.19, fallPace }) };\n})();');
   }
   run_(src);
 }
@@ -719,6 +719,44 @@ async function avgDeath(extra, label) {
   const dDist = desk.groundY - desk.dropStartY, pDist = phone.groundY - phone.dropStartY;
   console.log(`      下落距离：桌面 ${dDist.toFixed(0)} → 竖屏 ${pDist.toFixed(0)}（-${((1 - pDist / dDist) * 100).toFixed(0)}%）`);
   assert(pDist < dDist * 0.8, '下落距离确实变短（用户已确认接受变难）');
+
+  appEl.clientWidth = deskW; appEl.clientHeight = deskH;
+  run_('__test.layout()');
+
+  /* ---- 18. 手机掉落节奏：反应时间与电脑持平 ----
+     用户反馈「手机比电脑掉落速度快、难度太高」。真实原因是窄屏下落距离
+     被压缩 29%，而 vy0 / gravity 没变。修法：初速与重力同乘 fallPace，
+     让"落完窄屏距离"等价于"用原速落宽屏距离"。电脑 fallPace 恒为 1。 */
+  console.log('\n[18] 手机掉落节奏补偿');
+
+  const vy0 = run_('CONFIG.item.vy0');
+  const grav = run_('CONFIG.item.gravity');
+  const fallTime = (dist, k) => {
+    const v = vy0 * k, a = grav * k;
+    return (-v + Math.sqrt(v * v + 2 * a * dist)) / a;
+  };
+
+  run_('__test.layout()');
+  const desk2 = JSON.parse(run_('JSON.stringify(__test.topOffsets())'));
+  const tDesk = fallTime(desk2.groundY - desk2.dropStartY, desk2.fallPace);
+  console.log(`      桌面：fallPace=${desk2.fallPace.toFixed(3)} 反应时间=${tDesk.toFixed(3)}s`);
+  assert(desk2.fallPace === 1, '桌面节奏系数恒为 1（电脑完全不变）');
+
+  run_('(function(){ Math.random = function(){ return 0.5; }; })()');
+  const dVy = run_('__test.makeItem("flower", 0, 400, { fallScale: 1 }).vy');
+
+  appEl.clientWidth = 370; appEl.clientHeight = 760;
+  run_('__test.layout()');
+  const phone2 = JSON.parse(run_('JSON.stringify(__test.topOffsets())'));
+  const tPhone = fallTime(phone2.groundY - phone2.dropStartY, phone2.fallPace);
+  const pVy = run_('__test.makeItem("flower", 0, 190, { fallScale: 1 }).vy');
+  console.log(`      竖屏：fallPace=${phone2.fallPace.toFixed(3)} 反应时间=${tPhone.toFixed(3)}s 初速=${dVy.toFixed(1)}→${pVy.toFixed(1)}`);
+  assert(phone2.fallPace > 0.65 && phone2.fallPace < 0.75, '竖屏按剩余距离同比放慢');
+  assert(Math.abs(tPhone - tDesk) < 0.01,
+    `手机反应时间与电脑持平（${tPhone.toFixed(3)}s vs ${tDesk.toFixed(3)}s）`);
+  assert(Math.abs(pVy - dVy * phone2.fallPace) < 0.01, '生成的初速确实按系数缩小');
+  assert(run_('CONFIG.player.speed') === 470 && grav === 105,
+    '生成密度 / 角色速度 / 全局配置均未改动');
 
   appEl.clientWidth = deskW; appEl.clientHeight = deskH;
   run_('__test.layout()');

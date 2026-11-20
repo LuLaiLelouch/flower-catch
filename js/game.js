@@ -17,6 +17,8 @@
   // 窄屏时一起下移，给贴顶的两行 HUD 让出位置
   let throwerFootY = H * 0.184;
   let dropStartY = H * 0.234;
+  // 下落节奏系数：窄屏距离变短时同比放慢初速与重力，把反应时间补回宽屏水平
+  let fallPace = 1;
 
   // 与 sprites.js 中 drawPlayer 的骨架保持一致（方便以后换素材时只改一处）
   const PLAYER = {
@@ -818,7 +820,7 @@
       y: dropStartY,
       vx: (Math.random() * 2 - 1) * 45,
       vy: (CONFIG.item.vy0 + Math.random() * 25) * cfg.fallScale *
-          (type === 'bomb' ? (cfg.bombFall || 1) : 1),
+          (type === 'bomb' ? (cfg.bombFall || 1) : 1) * fallPace,
       rot: Math.random() * Math.PI,
       size: CONFIG.item.radius * (type === 'flower' ? f.size : 1) * VIEW.scale,
       type,
@@ -1134,7 +1136,7 @@
   function updateItems(dt, collide) {
     const hits = [];   // 本帧命中的道具先收集，最后统一结算
     for (const it of state.items) {
-      it.vy += CONFIG.item.gravity * dt;
+      it.vy += CONFIG.item.gravity * fallPace * dt;
       it.x += it.vx * dt;
       it.y += it.vy * dt;
       it.rot += CONFIG.item.spinSpeed * dt * (it.type === 'bomb' ? 0.6 : 1);
@@ -1256,8 +1258,9 @@
 
     /* 窄屏（逻辑宽度 ≤ 820，手机 / 小平板竖屏）HUD 贴顶占两行，会盖住
        原本画在 H*0.184 的投掷者。把她的脚底下移到「HUD 底部 + 角色高度 + 余量」，
-       掉落物起点按原来的相对差一起下移。宽屏完全不动，保持原画面与下落节奏。
-       注意：这里只改位置，不改 vy0 / gravity —— 用户已确认接受下落距离变短。 */
+       掉落物起点按原来的相对差一起下移。宽屏完全不动。
+       距离变短后按剩余距离同比放慢初速/重力（fallPace），把反应时间补回
+       宽屏水平；不改生成密度、角色速度和布局。 */
     if (W <= 820) {
       const throwerH = 155 * VIEW.scale;   // 与 sprites.js drawThrower 的图片框高一致
       throwerFootY = H * 0.19 + throwerH + 8;
@@ -1266,6 +1269,10 @@
       throwerFootY = H * 0.184;
       dropStartY = H * 0.234;
     }
+    // y(t) = v0*t + g*t²/2；v0 与 g 同乘 k 时，"落完 d" 等价于 "用原速落 d/k"。
+    // 令 d/k = 宽屏剩余距离，反应时间就与宽屏完全一致。
+    const wideDist = GROUND_Y - H * 0.234;
+    fallPace = Math.min(1, Math.max(0.5, (GROUND_Y - dropStartY) / wideDist));
 
     // 舞台显示尺寸：按 contain 等比铺满可用区域
     const s = Math.min(availW / W, availH / H);
