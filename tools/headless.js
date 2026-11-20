@@ -111,6 +111,25 @@ sandbox.window.confirm = () => true;          // 「重置进度」的二次确�
 sandbox.window.AudioContext = undefined;
 sandbox.window.webkitAudioContext = undefined;
 
+/* 云端排行榜桩：模拟 CloudBoard 的内存镜像。
+   用同步 thenable 让 .then 当场执行，断言能同步读到最终 UI 状态。
+   注意不要把 js/cloud-board.js 加进下面的加载列表，否则桩会被真模块覆盖。 */
+const cloudBoardStub = (() => {
+  let list = [];
+  const immediate = v => ({ then: fn => { fn(v); return undefined; } });
+  return {
+    list: () => list.slice(),
+    setList: l => { list = Array.isArray(l) ? l.slice() : []; },
+    clear: () => { list = []; delete store['flower-catch-leaderboard-v1']; },
+    ready: () => true,
+    status: () => ({ loaded: true, error: null }),
+    refresh: () => immediate(true),
+    submit: () => immediate(true),
+    clearMine: () => immediate(true),
+  };
+})();
+sandbox.window.CloudBoard = cloudBoardStub;
+
 const ctx = vm.createContext(sandbox);
 const run_ = code => vm.runInContext(code, ctx);
 
@@ -482,11 +501,11 @@ async function avgDeath(extra, label) {
   console.log(`      一帧后剩余空格：${after12}（0 = 回血保住了，1 = 被炸弹抵消）`);
   assert(after12 === 0, '吃到爱心后血量真的 +1，不会被同帧炸弹抵消');
 
-  /* ---- 13. 无尽模式排行榜（本地版） ---- */
+  /* ---- 13. 无尽模式排行榜（全服共享 / CloudBoard 桩） ---- */
   console.log('\n[13] 无尽排行榜');
   el('overlayBoard').classList.add('hidden');       // 模拟 HTML 里的 class="overlay hidden"
   // 前面 [8]/[11] 的无尽模式现在会实时落榜，这里从空榜开始，保证下面的条数断言干净
-  delete store['flower-catch-leaderboard-v1'];
+  cloudBoardStub.clear();
 
   // a. 首页 ID 默认值
   assert(el('playerId').value === '童琴99', '首页 ID 默认「童琴99」（实际：' + el('playerId').value + '）');
@@ -505,14 +524,14 @@ async function avgDeath(extra, label) {
 
   // d. 当前主机首次上榜
   run_('__test.state.score = 5000; __test.submitBoard("路赖OvO");');
-  let board = JSON.parse(store['flower-catch-leaderboard-v1']);
+  let board = cloudBoardStub.list();
   assert(board.length === 1 && board[0].id === '路赖OvO' && board[0].score === 5000,
     '首次上榜写入一条（' + board[0].id + ' · ' + board[0].score + ' 分）');
   assert(board[0].tag === 1, '首个该 ID 的玩家编号为 1');
 
   // e. 同名玩家、不同主机 → 拿到互不冲突的新编号
   run_('(function(){ localStorage.setItem("flower-catch-host-key-v1", "H-guest-host"); __test.state.score = 3000; __test.submitBoard("路赖OvO"); })()');
-  board = JSON.parse(store['flower-catch-leaderboard-v1']);
+  board = cloudBoardStub.list();
   assert(board.length === 2, '不同主机同名玩家各占一条');
   assert(new Set(board.map(e => e.tag)).size === 2, '编号互不冲突：#' + board.map(e => e.tag).join(' / #'));
   assert(board[0].score === 5000 && board[1].score === 3000, '按分数降序（5000 → 3000）');
@@ -526,7 +545,7 @@ async function avgDeath(extra, label) {
 
   // g. 同主机再上榜 → 更新自己的最高分而不是新增条目
   run_('(function(){ localStorage.setItem("flower-catch-host-key-v1", "H-guest-host"); __test.state.score = 4200; __test.submitBoard("路赖OvO"); })()');
-  board = JSON.parse(store['flower-catch-leaderboard-v1']);
+  board = cloudBoardStub.list();
   assert(board.length === 2 && board.some(e => e.score === 4200),
     '同主机同名上榜是更新而非新增（现在 ' + board.map(e => e.score).join(' / ') + '）');
 
@@ -538,7 +557,7 @@ async function avgDeath(extra, label) {
   assert(el('recordId').value === '路赖OvO', '输入行预填当前 ID');
   el('recordId').value = '';                        // 留空 → 应自动用默认 ID
   el('btnSecondary').dispatch('click');            // 直接关面板 → 自动提交
-  board = JSON.parse(store['flower-catch-leaderboard-v1']);
+  board = cloudBoardStub.list();
   assert(board.some(e => e.id === '童琴99'), '空 ID 自动以默认「童琴99」上榜');
   assert(el('recordBox').__classes.has('hidden'), '上榜后输入行收起');
   assert(board.length === 3, '榜单共 3 条（路赖OvO ×2 + 童琴99 ×1）');
@@ -550,7 +569,7 @@ async function avgDeath(extra, label) {
   console.log('\n[14] 退出路径与排行榜');
 
   // 路径 A：阵亡结算 → 返回菜单 → 点排行榜
-  delete store['flower-catch-leaderboard-v1'];
+  cloudBoardStub.clear();
   run_('(function(){ const s=__test.state; s.best=0; s.runBest=0; s.playerId="童琴99"; s.mode="endless"; s.phase="playing"; s.score=400; s.lives=0; __test.gameOver(); })()');
   await sleep(1500);
   assert(!el('recordBox').__classes.has('hidden'), 'A：阵亡破纪录出现上榜输入行');
@@ -560,7 +579,7 @@ async function avgDeath(extra, label) {
   el('btnBoardClose').dispatch('click');
 
   // 路径 B：没阵亡，暂停 → 返回主页面 → 点排行榜（用户实际走的路，修复前榜单是空的）
-  delete store['flower-catch-leaderboard-v1'];
+  cloudBoardStub.clear();
   run_('(function(){ const s=__test.state; s.mode="endless"; s.phase="playing"; s.score=600; s.best=0; s.runBest=0; s.lives=3; s.playerId="童琴99"; })()');
   el('btnPause').dispatch('click');
   el('btnPauseHome').dispatch('click');
@@ -571,14 +590,14 @@ async function avgDeath(extra, label) {
   el('btnBoardClose').dispatch('click');
 
   // 路径 C：不点任何面板，接花破纪录的瞬间就写榜（对应"直接关掉网页 / 刷新"）
-  delete store['flower-catch-leaderboard-v1'];
+  cloudBoardStub.clear();
   run_('(function(){ const s=__test.state; s.mode="endless"; s.phase="playing"; s.score=0; s.best=0; s.runBest=0; s.playerId="童琴99"; s.combo=0; })()');
   run_('__test.addScore(10, 100, 100, "#fff");');
-  let liveBoard = JSON.parse(store['flower-catch-leaderboard-v1'] || '[]');
+  let liveBoard = cloudBoardStub.list();
   assert(liveBoard.length === 1 && liveBoard[0].score === 10,
     'C：接花破纪录瞬间就落榜，关掉网页也不会丢');
   run_('__test.addScore(20, 100, 100, "#fff");');
-  liveBoard = JSON.parse(store['flower-catch-leaderboard-v1'] || '[]');
+  liveBoard = cloudBoardStub.list();
   assert(liveBoard.length === 1 && liveBoard[0].score === 30,
     'C：分数继续涨时同一条记录同步更新，不会重复上榜');
 
@@ -591,17 +610,17 @@ async function avgDeath(extra, label) {
   el('btnBoardClose').dispatch('click');
 
   // 路径 E：闯关模式得分不污染无尽排行榜
-  delete store['flower-catch-leaderboard-v1'];
+  cloudBoardStub.clear();
   run_('(function(){ const s=__test.state; s.mode="level"; s.level=1; s.phase="playing"; s.score=0; s.best=0; s.runBest=0; s.playerId="童琴99"; s.combo=0; })()');
   run_('__test.addScore(10, 100, 100, "#fff");');
-  assert(!store['flower-catch-leaderboard-v1'], 'E：闯关模式得分不写进无尽排行榜');
+  assert(cloudBoardStub.list().length === 0, 'E：闯关模式得分不写进无尽排行榜');
 
-  /* ---- 15. 测试按钮：清除历史最高分 + 排行榜 ---- */
-  console.log('\n[15] 清除分数记录（测试按钮）');
+  /* ---- 15. 清除按钮：只清本机最高分 + 自己云端那条 ---- */
+  console.log('\n[15] 清除我的成绩（测试按钮）');
 
   // 先造出一组完整数据
   store['flower-catch-endless-best-v1'] = '888';
-  store['flower-catch-leaderboard-v1'] = JSON.stringify([
+  cloudBoardStub.setList([
     { id: '童琴99', tag: 1, host: 'H-test', score: 888, at: 1 },
   ]);
   store['flower-catch-progress-v1'] = JSON.stringify({ unlocked: 4, endless: true });
@@ -612,13 +631,13 @@ async function avgDeath(extra, label) {
   sandbox.window.confirm = () => false;
   el('btnClearScores').dispatch('click');
   assert(store['flower-catch-endless-best-v1'] === '888' &&
-         !!store['flower-catch-leaderboard-v1'], 'A：取消确认时数据保持不变');
+         cloudBoardStub.list().length === 1, 'A：取消确认时数据保持不变');
   sandbox.window.confirm = () => true;
 
   // B：确认清除 → 两个分数键都清掉，内存状态同步归零
   el('btnClearScores').dispatch('click');
   assert(!store['flower-catch-endless-best-v1'], 'B：历史最高分已清除');
-  assert(!store['flower-catch-leaderboard-v1'], 'B：排行榜已清除');
+  assert(cloudBoardStub.list().length === 0, 'B：榜单记录已清除');
   assert(run_('__test.state.best') === 0 && run_('__test.state.runBest') === 0,
     'B：内存里的最高分与破纪录基准同步归零');
 
@@ -629,7 +648,7 @@ async function avgDeath(extra, label) {
   assert(String(el('clearMsg').textContent).includes('已清除'), 'C：清完给了页面提示');
 
   // D：排行榜面板开着时清除 → 立刻刷新成空榜
-  store['flower-catch-leaderboard-v1'] = JSON.stringify([
+  cloudBoardStub.setList([
     { id: '路赖OvO', tag: 1, host: 'H-test', score: 999, at: 2 },
   ]);
   el('btnBoard').dispatch('click');

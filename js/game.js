@@ -548,21 +548,24 @@
     renderMenu();
   }
 
-  /* --------------------- 无尽模式排行榜（本地版） ---------------------
-     数据存在浏览器 localStorage，没有服务器；以后接后端只换 boardStore 两个函数。
-     同名玩家的编号：按"主机指纹"分配 —— 首次运行生成随机标识并永久保存，
-     同一台机器永远拿同一个编号，不同机器互不冲突。编号只在同名玩家超过
-     一个时才显示（排行榜里透明灰色小字）。 */
+  /* --------------------- 无尽模式排行榜（全服共享） ---------------------
+     榜单存在云数据库，所有通过发布网址打开的人看到同一份数据。
+     CloudBoard 负责云端读写，boardStore 只做同步内存镜像，让现有的
+     同步渲染 / 判定逻辑不用改成 async；写操作一律异步提交到云端。
+     同名玩家编号：CloudBoard 按首次上榜时间算，主机指纹仍存本机，
+     用来区分"同名的不同设备"。 */
   const esc = s => String(s).replace(/[&<>"']/g,
     c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+  // 旧版本地榜单不再使用，加载时清掉残留（玩家 ID / 主机指纹保留）
+  try { localStorage.removeItem(CONFIG.board.key); } catch (e) {}
+
   const boardStore = {
     load() {
-      try { return JSON.parse(localStorage.getItem(CONFIG.board.key) || '[]'); }
-      catch (e) { return []; }
+      return window.CloudBoard ? CloudBoard.list() : [];
     },
     save(list) {
-      try { localStorage.setItem(CONFIG.board.key, JSON.stringify(list)); } catch (e) {}
+      if (window.CloudBoard) CloudBoard.setList(list);
     },
   };
 
@@ -576,14 +579,16 @@
     return k;
   }
 
-  /* 写一条成绩：同名 + 同主机 → 更新自己的最高分；否则按主机指纹分配新编号。
-     抽成独立函数，好让"实时破纪录落榜"和"结算面板确认上榜"共用同一套规则。 */
+  /* 写一条成绩：先更新内存镜像让 UI 立刻有反馈，再异步提交云端。
+     "实时破纪录落榜"和"结算面板确认上榜"共用这一套规则。 */
   function upsertBoard(id, score) {
     const list = boardStore.load();
     const host = hostKey();
     const mine = list.find(e => e.id === id && e.host === host);
+    let finalScore = score;
     if (mine) {
-      mine.score = Math.max(mine.score, score);
+      finalScore = Math.max(mine.score, score);
+      mine.score = finalScore;
       mine.at = Date.now();
     } else {
       const same = list.filter(e => e.id === id);
@@ -592,6 +597,9 @@
     }
     list.sort((a, b) => b.score - a.score || a.at - b.at);
     boardStore.save(list.slice(0, CONFIG.board.max));
+    // fire-and-forget：失败会记进 CloudBoard.status()，打开排行榜时给明确提示，
+    // 不静默退回 localStorage 假装成功。
+    if (window.CloudBoard) CloudBoard.submit(id, host, finalScore);
   }
 
   // 结算面板里点「上榜」：用输入框的 ID 提交，空 ID 回退默认值
@@ -624,7 +632,18 @@
     upsertBoard(state.playerId, state.score);
   }
 
-  function renderBoard() {
+  /* 排行榜面板：先用内存镜像同步画一次（点开立刻有内容），
+     再异步拉云端最新数据重画。加载失败显示明确提示，不静默降级。 */
+  function paintBoard() {
+    const cb = window.CloudBoard;
+    const st = cb ? cb.status() : null;
+    if (!cb || !cb.ready() || (st && st.error)) {
+      el.boardList.innerHTML = '';
+      el.boardList.classList.add('hidden');
+      el.boardEmpty.textContent = '排行榜暂时加载失败 · 请检查网络后重新打开';
+      el.boardEmpty.classList.remove('hidden');
+      return;
+    }
     const list = boardStore.load();
     const counts = {};
     list.forEach(e => { counts[e.id] = (counts[e.id] || 0) + 1; });
@@ -639,25 +658,42 @@
       </li>`;
     }).join('');
     el.boardList.classList.toggle('hidden', !list.length);
+    el.boardEmpty.textContent = '暂无记录 · 去无尽模式创造第一个纪录';
     el.boardEmpty.classList.toggle('hidden', !!list.length);
   }
 
-  /* 测试用：清空无尽模式历史最高分 + 排行榜成绩。
-     关卡解锁进度、上榜 ID、主机编号都保留，方便清掉测试数据重新测。 */
+  function renderBoard() {
+    paintBoard();
+    if (!window.CloudBoard) return;
+    CloudBoard.refresh().then(() => {
+      if (!el.board.classList.contains('hidden')) paintBoard();
+    });
+  }
+
+  /* 清除本机最高分 + 自己在云端排行榜上的那一条。
+     榜单是全服共享的，绝不能清别人的成绩 —— 云端函数只按本机
+     主机指纹删一行。关卡解锁进度和玩家 ID 保留。 */
   function clearScores() {
     const ok = window.confirm(
-      '确定清除无尽模式的历史最高分和排行榜吗？\n' +
-      '关卡解锁进度、上榜 ID 会保留；此操作不可撤销。');
+      '确定清除本机最高分、并移除你在排行榜上这条成绩吗？\n' +
+      '其他玩家的成绩不受影响；此操作不可撤销。');
     if (!ok) return;
     try {
       localStorage.removeItem(CONFIG.endlessBestKey);
-      localStorage.removeItem(CONFIG.board.key);
+      localStorage.removeItem(CONFIG.board.key);   // 清掉旧版本地榜单残留
     } catch (e) {}
     state.best = 0;
     state.runBest = 0;
-    // 排行榜面板正开着的话，立刻刷新成空榜，不用关掉再打开
-    if (!el.board.classList.contains('hidden')) renderBoard();
-    showClearMsg('已清除最高分与排行榜，可以重新测试了');
+    boardStore.save([]);
+    if (!window.CloudBoard) {
+      showClearMsg('排行榜服务未加载 · 仅清除了本机最高分');
+      return;
+    }
+    showClearMsg('正在清除我的记录…');
+    CloudBoard.clearMine(hostKey()).then(done => {
+      showClearMsg(done ? '已清除我的最高分与榜单记录' : '清除失败 · 请检查网络后重试');
+      if (!el.board.classList.contains('hidden')) renderBoard();
+    });
   }
 
   let clearMsgTimer = null;

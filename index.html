@@ -107,7 +107,7 @@
         <div class="logo">
           <span class="logo-flower">🏆</span>
           <h1>无尽排行榜</h1>
-          <p class="subtitle">不同玩家的最高分 · 同名玩家以灰色编号区分</p>
+          <p class="subtitle">全服共享 · 所有打开这个网址的玩家同榜 · 同名以灰色编号区分</p>
         </div>
         <ol id="boardList" class="board-list"></ol>
         <p id="boardEmpty" class="start-hint hidden">暂无记录 · 去无尽模式创造第一个纪录</p>
@@ -155,11 +155,15 @@
      不要加 loop —— 顺序轮播由 game.js 里监听 ended 事件接管。 -->
 <audio id="bgm" preload="auto"></audio>
 
+<!-- 云服务 SDK：纯静态项目用 CDN 全局版，暴露 WorkBuddyCloud。
+     必须在 cloud-board.js 之前加载。固定用 @dev 通道，别换成 @latest。 -->
+<script src="https://cdn.jsdelivr.net/npm/@tencent-ai/workbuddy-cloud-sdk@dev/lib/index.global.js"></script>
+
 <!-- 开发期防缓存：每次刷新都拉最新的 JS，改完配置立刻生效。
      以后要上线发布时，可以改回下面注释掉的静态写法：
      <script src="js/config.js"></script> ... -->
 <script>
-  ['js/config.js', 'js/sprites.js', 'js/game.js'].forEach(function (src) {
+  ['js/cloud-board.js', 'js/config.js', 'js/sprites.js', 'js/game.js'].forEach(function (src) {
     document.write('<script src="' + src + '?t=' + Date.now() + '"><\/script>');
   });
 </script>
