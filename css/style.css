@@ -690,20 +690,53 @@ body {
   font-size: clamp(12px, 2.9cqw, 14px);
 }
 
-.board-row.me { background: #fff3e0; }   /* 自己的纪录高亮 */
+/* 自己的那条：橙色渐变底 + 左侧色条 + 细边，一眼就能看见（原来只是浅灰橙） */
+.board-row.me {
+  background: linear-gradient(135deg, #fff2df, #ffe2c4);
+  box-shadow:
+    inset 3px 0 0 #ff8a3d,
+    inset 0 0 0 1.5px rgba(255, 138, 61, .42),
+    0 2px 10px rgba(255, 138, 61, .16);
+}
+.board-row.me .board-name { color: #c2560a; }
+.board-row.me .board-score { color: #e2680c; }
 
 .board-rank { font-size: 1.05em; text-align: center; }
 
 .board-name {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
   font-weight: 700;
   color: var(--ink);
+}
+
+/* 名字本体才截断，后面的编号 / 「你」徽章永远完整显示 */
+.board-name-text {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* 「你」徽章：跟在高亮行的名字后面 */
+.board-me {
+  flex: 0 0 auto;
+  font-style: normal;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: .72em;
+  font-weight: 800;
+  line-height: 1.5;
+  color: #fff;
+  background: linear-gradient(135deg, #ffb457, #ff7a59);
+  box-shadow: 0 1px 4px rgba(255, 122, 89, .35);
+}
+
 /* 同名玩家的编号：透明灰色小字，跟在 ID 后面 */
 .board-tag {
+  flex: 0 0 auto;
   font-style: normal;
   font-size: .74em;
   font-weight: 700;

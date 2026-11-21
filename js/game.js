@@ -663,11 +663,13 @@
     list.forEach(e => { counts[e.id] = (counts[e.id] || 0) + 1; });
     const host = hostKey();
     el.boardList.innerHTML = list.map((e, i) => {
-      const tag = counts[e.id] > 1 ? ` <i class="board-tag">#${e.tag || 1}</i>` : '';
+      const tag = counts[e.id] > 1 ? `<i class="board-tag">#${e.tag || 1}</i>` : '';
       const medal = ['🥇', '🥈', '🥉'][i] || `${i + 1}`;
-      return `<li class="board-row${e.host === host ? ' me' : ''}">
+      // 主机指纹相同的都是"你自己"（改过 ID 也仍高亮），别人同名的不会误中
+      const isMe = e.host === host;
+      return `<li class="board-row${isMe ? ' me' : ''}"${isMe ? ' title="这是你自己"' : ''}>
         <b class="board-rank">${medal}</b>
-        <span class="board-name">${esc(e.id)}${tag}</span>
+        <span class="board-name"><span class="board-name-text">${esc(e.id)}</span>${tag}${isMe ? '<i class="board-me">你</i>' : ''}</span>
         <span class="board-score">${e.score}</span>
       </li>`;
     }).join('');
@@ -676,11 +678,25 @@
     el.boardEmpty.classList.toggle('hidden', !!list.length);
   }
 
+  /* 榜单最多 50 条，面板里只能看到几条 —— 打开时把自己那条滚到可视区中间，
+     否则成绩排在下面的人根本不知道自己上榜了。没有自己的记录就什么都不做。 */
+  function scrollBoardToMe() {
+    const me = el.boardList.querySelector('.board-row.me');
+    if (!me || el.boardList.classList.contains('hidden')) return;
+    const r = me.getBoundingClientRect();
+    const box = el.boardList.getBoundingClientRect();
+    const delta = (r.top + r.height / 2) - (box.top + box.height / 2);
+    if (Math.abs(delta) < 4) return;
+    el.boardList.scrollTop += delta;
+  }
+
   function renderBoard() {
     paintBoard();
     if (!window.CloudBoard) return;
     CloudBoard.refresh().then(() => {
-      if (!el.board.classList.contains('hidden')) paintBoard();
+      if (el.board.classList.contains('hidden')) return;
+      paintBoard();
+      scrollBoardToMe();      // 云端数据回来后位置可能变，再对一次
     });
   }
 
@@ -1836,6 +1852,7 @@
   el.btnBoard.addEventListener('click', () => {
     renderBoard();
     el.board.classList.remove('hidden');
+    requestAnimationFrame(scrollBoardToMe);   // 面板显示出来才量得到高度
   });
   el.btnBoardClose.addEventListener('click', () => el.board.classList.add('hidden'));
   el.btnRecord.addEventListener('click', () => submitBoard());

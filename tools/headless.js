@@ -553,6 +553,14 @@ async function avgDeath(extra, label) {
   assert(bHtml.includes('#1') && bHtml.includes('#2'), '编号 1 / 2 都渲染出来');
   assert(bHtml.includes('路赖OvO') && !bHtml.includes('&lt;'), 'ID 正常转义输出');
 
+  // f2. 自己那条要高亮：按主机指纹认人，不是按 ID（同名别人的不高亮）
+  const meRows = (bHtml.match(/board-row me/g) || []).length;
+  assert(meRows === 1, '只有自己那条高亮（其余 ' + ((bHtml.match(/board-row/g) || []).length - meRows) + ' 条不高亮）');
+  assert(bHtml.includes('class="board-me"') && bHtml.includes('>你<'), '自己那条带「你」徽章');
+  run_('(function(){ localStorage.setItem("flower-catch-host-key-v1", "H-none"); __test.renderBoard(); })()');
+  assert(!/board-row me/.test(String(el('boardList').innerHTML)), '本机没成绩时不高亮任何一条');
+  run_('(function(){ localStorage.setItem("flower-catch-host-key-v1", "H-guest-host"); __test.renderBoard(); })()');
+
   // g. 同主机再上榜 → 更新自己的最高分而不是新增条目
   run_('(function(){ localStorage.setItem("flower-catch-host-key-v1", "H-guest-host"); __test.state.score = 4200; __test.submitBoard("路赖OvO"); })()');
   board = cloudBoardStub.list();
@@ -571,6 +579,20 @@ async function avgDeath(extra, label) {
   assert(board.some(e => e.id === '童琴99'), '空 ID 自动以默认「童琴99」上榜');
   assert(el('recordBox').__classes.has('hidden'), '上榜后输入行收起');
   assert(board.length === 3, '榜单共 3 条（路赖OvO ×2 + 童琴99 ×1）');
+
+  // i. 同一台设备换了 ID 上榜 → 这些 ID 全部高亮（判定按主机指纹，不按 ID）
+  run_('(function(){ __test.state.score = 777; __test.submitBoard("小号A"); })()');
+  run_('__test.renderBoard();');
+  const meHtml = String(el('boardList').innerHTML);
+  const meCount = (meHtml.match(/board-row me/g) || []).length;
+  // 这台机器此前已用「路赖OvO」和「童琴99」各上过榜，再加上「小号A」→ 应全部高亮
+  const myHost = run_('localStorage.getItem("flower-catch-host-key-v1")');
+  const myRows = cloudBoardStub.list().filter(e => e.host === myHost).length;
+  assert(meCount === myRows && meCount >= 2,
+    '同设备不同 ID 全部高亮（本机 ' + myRows + ' 条 / 高亮 ' + meCount + ' 条）');
+  assert((meHtml.match(/class="board-me"/g) || []).length === myRows, '每个高亮条目都带「你」徽章');
+  assert(meHtml.includes('小号A') && meHtml.includes('路赖OvO'), '不同 ID 都在榜上');
+  run_('__test.renderBoard();');
 
   /* ---- 14. 退出路径：打完回首页必须能看到排名 ----
      用户反馈「打完之后退出到首页点开排行榜没看到有排名」。
