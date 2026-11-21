@@ -140,7 +140,7 @@ for (const f of ['js/config.js', 'js/sprites.js', 'js/game.js']) {
     // 只在这个 vm 沙箱里把内部状态暴露出来，用于构造确定性碰撞场景；
     // 磁盘上的游戏文件不受影响，浏览器里也不会有 __test。
     src = src.replace(/\}\)\(\);\s*$/,
-      'globalThis.__test = { state, makeItem, healUp, takeDamage, renderLives, hitRect, submitBoard, renderBoard, gameOver, addScore, flushRunRecord, layout, topOffsets: () => ({ throwerFootY, dropStartY, W, H, groundY: GROUND_Y, hudBottom: H * 0.19, fallPace }) };\n})();');
+      'globalThis.__test = { state, makeItem, healUp, takeDamage, renderLives, hitRect, submitBoard, renderBoard, gameOver, addScore, flushRunRecord, layout, topOffsets: () => ({ throwerFootY, dropStartY, W, H, groundY: GROUND_Y, hudBottom: hudBottomY, charH: THROWER_ANIMS.displaySize * (THROWER_ANIMS.anchorY - THROWER_ANIMS.topPad) * VIEW.scale, refDropStart: H * 0.234, fallPace }) };\n})();');
   }
   run_(src);
 }
@@ -174,6 +174,17 @@ async function run(n, label) {
     if (gradSeq.length) lastSky = gradSeq[0].stops.join('|');
     frames++;
     if (i % 30 === 29) await sleep(1);
+  }
+  return true;
+}
+
+/* 跑到过关面板出现为止。通关演出（出画 → 走回 → 5 秒合影）要 7~9 秒，
+   原来固定 run(500) 的预算不够用了。 */
+async function runUntilPanel(max, label) {
+  let g = 0;
+  while (!panelShown() && g < max) {
+    if (!await run(10, label)) return false;
+    g += 10;
   }
   return true;
 }
@@ -246,8 +257,7 @@ async function avgDeath(extra, label) {
   run_('PLAYER_ANIMS.bodyRatioW = 8; PLAYER_ANIMS.bodyRatioH = 2;');   // 保证接到花
   run_('LEVELS.forEach(l => { l.target = 30; l.bombRate = 0; });');     // 压低目标分、先关掉炸弹
   tiles()[0].dispatch('click');
-  if (!await run(500, '第 1 关')) return done();
-  await sleep(700);                                                     // 等过关面板（delay 420ms）
+  if (!await runUntilPanel(1400, '第 1 关')) return done();
   assert(panelShown(), '过关面板已弹出');
   assert(title().includes('通过'), '弹出过关面板：' + title());
   assert(saved().unlocked === 2, '存档已解锁到第 2 关');
@@ -263,8 +273,7 @@ async function avgDeath(extra, label) {
 
   /* ---- 4. 返回关卡选择，确认解锁已生效 ---- */
   console.log('\n[4] 通关第 2 关后返回菜单');
-  if (!await run(500, '第 2 关')) return done();
-  await sleep(700);
+  if (!await runUntilPanel(1400, '第 2 关')) return done();
   assert(panelShown(), '第 2 关过关面板已弹出');
   el('btnSecondary').dispatch('click');
   assert(saved().unlocked >= 3, '存档已解锁到第 3 关');
@@ -345,9 +354,8 @@ async function avgDeath(extra, label) {
   tiles()[0].dispatch('click');
   const skies = [];
   for (let lv = 1; lv <= 5; lv++) {
-    if (!await run(500, '第 ' + lv + ' 关')) return done();
+    if (!await runUntilPanel(1400, '第 ' + lv + ' 关')) return done();
     skies.push(lastSky);                                    // 记录本关天空渐变
-    await sleep(700);
     assert(panelShown(), `第 ${lv} 关过关面板已弹出`);
     if (lv < 5) {
       assert(title().includes('通过'), `第 ${lv} 关过关：${title()}`);
@@ -421,6 +429,8 @@ async function avgDeath(extra, label) {
   tiles()[0].dispatch('click');
   let lost = 0;
   for (let i = 0; i < 400 && lost < 1; i++) {
+    // 和 framesToDeath 一样左右横扫：站着不动可能一直躲开炸弹，靠运气会偶发失败
+    el('game').dispatch('pointermove', { clientX: (454 + Math.sin(i / 16) * 380) * 900 / 908 });
     const cb = rafQueue.shift();
     if (!cb) break;
     clock += 16.7; gradSeq = [];
@@ -696,38 +706,46 @@ async function avgDeath(extra, label) {
   appEl.clientWidth = deskW; appEl.clientHeight = deskH;
   run_('__test.layout()');
 
-  /* ---- 17. 投掷者避让贴顶 HUD：窄屏下移，宽屏原位 ----
-     用户要求「UI 放回顶部 + 把投掷者往下挪让开 HUD」，并确认接受
-     下落距离变短（不改 vy0 / gravity）。 */
+  /* ---- 17. 投掷者避让贴顶 HUD：宽窄屏统一 ----
+     用户要求「UI 放回顶部 + 把投掷者往下挪让开 HUD」；后来发现宽屏其实
+     也被进度条压住（900 宽几乎整个藏在条后面），于是宽窄屏统一成一条规则：
+     脚底 = max(原位, HUD 下沿 + 角色可视高 + 余量)。窄屏 HUD 两行更高，
+     她自然被推得更低。不改角色速度 / 生成密度。 */
   console.log('\n[17] 投掷者避让贴顶 HUD');
 
   const desk = JSON.parse(run_('JSON.stringify(__test.topOffsets())'));
-  console.log(`      桌面：W=${desk.W} 投掷者脚底=${desk.throwerFootY.toFixed(1)} 掉落起点=${desk.dropStartY.toFixed(1)}`);
-  assert(desk.W > 820, '桌面逻辑宽度 > 820（不触发避让）');
-  assert(Math.abs(desk.throwerFootY - desk.H * 0.184) < 0.01, '桌面投掷者保持原位 H*0.184');
-  assert(Math.abs(desk.dropStartY - desk.H * 0.234) < 0.01, '桌面掉落起点保持原位 H*0.234');
+  console.log(`      桌面：W=${desk.W} HUD下沿=${desk.hudBottom.toFixed(1)} 角色高=${desk.charH.toFixed(1)} 投掷者脚底=${desk.throwerFootY.toFixed(1)} 掉落起点=${desk.dropStartY.toFixed(1)}`);
+  assert(desk.W > 820, '桌面逻辑宽度 > 820');
+  assert(desk.throwerFootY > desk.H * 0.184 + 40, '桌面投掷者也被推到 HUD 之下（不再被进度条压住）');
+  assert(desk.throwerFootY - desk.charH >= desk.hudBottom,
+    '桌面整个头露在 HUD 下面（脚底 - 角色高 ≥ HUD 下沿）');
 
   appEl.clientWidth = 370; appEl.clientHeight = 760;
   run_('__test.layout()');
   const phone = JSON.parse(run_('JSON.stringify(__test.topOffsets())'));
-  console.log(`      竖屏：W=${phone.W} 投掷者脚底=${phone.throwerFootY.toFixed(1)} 掉落起点=${phone.dropStartY.toFixed(1)}`);
+  console.log(`      竖屏：W=${phone.W} HUD下沿=${phone.hudBottom.toFixed(1)} 角色高=${phone.charH.toFixed(1)} 投掷者脚底=${phone.throwerFootY.toFixed(1)} 掉落起点=${phone.dropStartY.toFixed(1)}`);
   assert(phone.W === 380 && phone.W <= 820, '竖屏触发避让');
-  assert(phone.throwerFootY > desk.throwerFootY + 80, '竖屏投掷者明显下移');
-  assert(phone.throwerFootY - phone.hudBottom >= 155 * 0.6,
-    '投掷者头顶在 HUD 底部之下（完整露出，不被挡）');
+  assert(phone.throwerFootY > desk.throwerFootY + 20, '竖屏 HUD 两行更高 → 投掷者比桌面更低');
+  assert(phone.throwerFootY - phone.charH >= phone.hudBottom,
+    '竖屏整个头露在 HUD 下面（脚底 - 角色高 ≥ HUD 下沿）');
   assert(phone.dropStartY > phone.throwerFootY, '掉落起点仍在投掷者脚底下方，符合「往下扔」');
+
+  const refDist = desk.groundY - desk.refDropStart;
   const dDist = desk.groundY - desk.dropStartY, pDist = phone.groundY - phone.dropStartY;
-  console.log(`      下落距离：桌面 ${dDist.toFixed(0)} → 竖屏 ${pDist.toFixed(0)}（-${((1 - pDist / dDist) * 100).toFixed(0)}%）`);
-  assert(pDist < dDist * 0.8, '下落距离确实变短（用户已确认接受变难）');
+  console.log(`      下落距离：参考 ${refDist.toFixed(0)} → 桌面 ${dDist.toFixed(0)} / 竖屏 ${pDist.toFixed(0)}`);
+  assert(dDist < refDist * 0.95, '桌面下落距离比原参考短（下移的代价，已用节奏补偿抵消）');
+  assert(pDist < dDist, '竖屏下落距离比桌面更短');
 
   appEl.clientWidth = deskW; appEl.clientHeight = deskH;
   run_('__test.layout()');
 
-  /* ---- 18. 手机掉落节奏：反应时间与电脑持平 ----
+  /* ---- 18. 掉落节奏补偿：反应时间恒定 ----
      用户反馈「手机比电脑掉落速度快、难度太高」。真实原因是窄屏下落距离
-     被压缩 29%，而 vy0 / gravity 没变。修法：初速与重力同乘 fallPace，
-     让"落完窄屏距离"等价于"用原速落宽屏距离"。电脑 fallPace 恒为 1。 */
-  console.log('\n[18] 手机掉落节奏补偿');
+     被压缩，而 vy0 / gravity 没变。修法：初速与重力同乘 fallPace，
+     让"落完当前距离"等价于"用原速落原参考距离"。
+     现在桌面也下移了，所以桌面同样乘系数 —— 不变量是"反应时间不变"，
+     而不是"电脑系数恒为 1"。 */
+  console.log('\n[18] 掉落节奏补偿');
 
   const vy0 = run_('CONFIG.item.vy0');
   const grav = run_('CONFIG.item.gravity');
@@ -739,27 +757,81 @@ async function avgDeath(extra, label) {
   run_('__test.layout()');
   const desk2 = JSON.parse(run_('JSON.stringify(__test.topOffsets())'));
   const tDesk = fallTime(desk2.groundY - desk2.dropStartY, desk2.fallPace);
-  console.log(`      桌面：fallPace=${desk2.fallPace.toFixed(3)} 反应时间=${tDesk.toFixed(3)}s`);
-  assert(desk2.fallPace === 1, '桌面节奏系数恒为 1（电脑完全不变）');
+  const tRef = fallTime(desk2.groundY - desk2.refDropStart, 1);
+  console.log(`      桌面：fallPace=${desk2.fallPace.toFixed(3)} 反应时间=${tDesk.toFixed(3)}s（原参考 ${tRef.toFixed(3)}s）`);
+  assert(Math.abs(desk2.fallPace - (desk2.groundY - desk2.dropStartY) / (desk2.groundY - desk2.refDropStart)) < 0.001,
+    '桌面节奏系数 = 剩余距离比');
+  assert(Math.abs(tDesk - tRef) < 0.02, '桌面反应时间仍等于原参考（下移的代价被补偿抵消）');
 
   run_('(function(){ Math.random = function(){ return 0.5; }; })()');
   const dVy = run_('__test.makeItem("flower", 0, 400, { fallScale: 1 }).vy');
+  const baseVy = run_('CONFIG.item.vy0 + 25 * 0.5');
 
   appEl.clientWidth = 370; appEl.clientHeight = 760;
   run_('__test.layout()');
   const phone2 = JSON.parse(run_('JSON.stringify(__test.topOffsets())'));
   const tPhone = fallTime(phone2.groundY - phone2.dropStartY, phone2.fallPace);
   const pVy = run_('__test.makeItem("flower", 0, 190, { fallScale: 1 }).vy');
-  console.log(`      竖屏：fallPace=${phone2.fallPace.toFixed(3)} 反应时间=${tPhone.toFixed(3)}s 初速=${dVy.toFixed(1)}→${pVy.toFixed(1)}`);
-  assert(phone2.fallPace > 0.65 && phone2.fallPace < 0.75, '竖屏按剩余距离同比放慢');
+  console.log(`      竖屏：fallPace=${phone2.fallPace.toFixed(3)} 反应时间=${tPhone.toFixed(3)}s 初速=${baseVy.toFixed(1)} → 桌面${dVy.toFixed(1)} / 竖屏${pVy.toFixed(1)}`);
+  assert(phone2.fallPace > 0.6 && phone2.fallPace < 0.8, '竖屏按剩余距离同比放慢');
   assert(Math.abs(tPhone - tDesk) < 0.01,
     `手机反应时间与电脑持平（${tPhone.toFixed(3)}s vs ${tDesk.toFixed(3)}s）`);
-  assert(Math.abs(pVy - dVy * phone2.fallPace) < 0.01, '生成的初速确实按系数缩小');
+  assert(Math.abs(dVy - baseVy * desk2.fallPace) < 0.01, '桌面初速也按自己的系数缩小');
+  assert(Math.abs(pVy - baseVy * phone2.fallPace) < 0.01, '生成的初速确实按系数缩小');
   assert(run_('CONFIG.player.speed') === 470 && grav === 105,
     '生成密度 / 角色速度 / 全局配置均未改动');
 
   appEl.clientWidth = deskW; appEl.clientHeight = deskH;
   run_('__test.layout()');
+
+  /* ---- 19. 通关结算演出 ----
+     要求：通关时玩家锁定，投掷者按所在半边跑出屏幕再走回玩家身边，
+     碰面后换成结算画面，画面播完才弹过关面板。 */
+  console.log('\n[19] 通关结算演出');
+
+  run_('(function(){ const s=__test.state; s.mode="level"; s.level=1; s.finale=null; s.phase="menu"; })()');
+  el('overlayOver').classList.add('hidden');
+  run_('LEVELS.forEach(l => { l.target = 30; l.bombRate = 0; l.heartRate = 0; })');
+  run_('PLAYER_ANIMS.bodyRatioW = 8; PLAYER_ANIMS.bodyRatioH = 2;');
+  el('levelGrid').children[0].dispatch('click');
+  assert(run_('__test.state.phase') === 'playing', '重新进入第 1 关');
+
+  let g1 = 0;
+  while (run_('__test.state.phase') === 'playing' && g1 < 500) {
+    if (!await run(10, '过关前')) return done();
+    g1 += 10;
+  }
+  assert(run_('__test.state.phase') === 'finale', '过关后进入 finale 演出阶段');
+  const fdir = run_('__test.state.finale.dir');
+  assert(fdir === -1 || fdir === 1, `演出方向已按所在半边确定：${fdir}`);
+  assert(run_('__test.state.items.length') === 0, '演出开始时清屏');
+  assert(String(run_('__test.state.throwerAnim.key')).indexOf('walk') === 0,
+    '演出播放左右走动画：' + run_('__test.state.throwerAnim.key'));
+
+  // 玩家锁定
+  const lockX = run_('__test.state.playerX');
+  el('game').dispatch('pointermove', { clientX: 20 });
+  if (!await run(20, '锁定检查')) return done();
+  assert(Math.abs(run_('__test.state.playerX') - lockX) < 0.01, '演出期间玩家不能移动');
+
+  // 轮询到结算画面阶段
+  let g2 = 0;
+  while (!run_('!!(__test.state.finale && __test.state.finale.stage === "screen")') && g2 < 500) {
+    if (!await run(10, '走向玩家')) return done();
+    g2 += 10;
+  }
+  assert(run_('__test.state.throwerAnim.key') === 'finish', '碰面后切到结算画面');
+  const meetGap = Math.abs(run_('__test.state.finale.thX') - run_('__test.state.playerX'));
+  assert(meetGap < 80, `结算画面定位在两人之间（相距 ${meetGap.toFixed(1)}）`);
+
+  // 播完才弹面板
+  let g3 = 0;
+  while (!panelShown() && g3 < 400) {
+    if (!await run(10, '结算画面')) return done();
+    g3 += 10;
+  }
+  assert(panelShown(), '结算画面播完才弹过关面板');
+  assert(title().includes('通过'), '面板标题正确：' + title());
 
   done();
 })();

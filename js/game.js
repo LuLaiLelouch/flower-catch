@@ -17,6 +17,8 @@
   // 窄屏时一起下移，给贴顶的两行 HUD 让出位置
   let throwerFootY = H * 0.184;
   let dropStartY = H * 0.234;
+  // HUD 实际下沿（逻辑坐标）：placeThrower() 算出来后留档，便于自检
+  let hudBottomY = 0;
   // 下落节奏系数：窄屏距离变短时同比放慢初速与重力，把反应时间补回宽屏水平
   let fallPace = 1;
 
@@ -140,6 +142,9 @@
     throwerX: W / 2,
     throwerDir: 1,
     throwPhase: 1,
+    // 投掷者（撒花的人）帧动画状态：正常游玩播 sprinkle，通关演出切左右走 / 结算画面
+    throwerAnim: { key: 'sprinkle', t: 0, phase: 0, index: 0, hidden: false },
+    finale: null,            // 通关结算演出状态（见 startFinale）
     spawnTimer: 900,
     items: [],
     particles: [],
@@ -489,6 +494,9 @@
     state.banner = null;
     state.playerX = W / 2;
     state.targetX = W / 2;
+    state.throwerX = W / 2;
+    state.finale = null;
+    state.throwerAnim = { key: 'sprinkle', t: 0, phase: 0, index: 0, hidden: false };
     restartAnim('idle');
     renderLives();
     syncHud();
@@ -506,6 +514,10 @@
     el.over.classList.add('hidden');
     el.pause.classList.add('hidden');
     el.hud.classList.remove('hidden');
+    // HUD 刚显示出来，这时才量得到真实高度 → 重新定她的站位。
+    // 下一帧再量一次：窄屏的两行布局由容器查询决定，偶尔会比这一帧晚一步生效。
+    placeThrower();
+    requestAnimationFrame(placeThrower);
     Music.play();   // 这里是用户点击产生的手势，正好用来启动 BGM
   }
 
@@ -738,7 +750,10 @@
       el.bestScore.textContent = state.best;
       el.newRecord.classList.toggle('hidden', !isNew);
     }
-    setTimeout(() => el.over.classList.remove('hidden'), opt.delay || 0);
+    // 有延迟（等死亡动画）才用定时器；没有延迟就直接弹，少一次宏任务
+    const delayMs = opt.delay || 0;
+    if (delayMs > 0) setTimeout(() => el.over.classList.remove('hidden'), delayMs);
+    else el.over.classList.remove('hidden');
   }
 
   // 生命掉光：闯关不结算分数，只给"再来一次 / 返回关卡选择"
@@ -856,8 +871,18 @@
     else state.items.push(makeItem(type, kind, state.throwerX + (Math.random() * 40 - 20), cfg));
 
     state.throwPhase = 0;
+    // 撒花与丢花同拍：每次丢花都从撒花循环的第一帧重新开始，
+    // 一整套撒花正好用完，下一次丢花时又接上 —— 视觉上"撒完就扔"。
+    setThrowerAnim('sprinkle', true);
+    state.spawnTimer = spawnIntervalMs();
+  }
+
+  /* 当前生成间隔（毫秒）：关卡内随进度从 spawnStart 缩到 spawnMin，
+     再乘窄屏密度倍率。撒花动画的周期直接取它，所以两者永远同步。 */
+  function spawnIntervalMs() {
+    const cfg = curCfg();
     const p = levelProgress();
-    state.spawnTimer = (cfg.spawnStart + (cfg.spawnMin - cfg.spawnStart) * p) * spawnScale();
+    return Math.max(1, (cfg.spawnStart + (cfg.spawnMin - cfg.spawnStart) * p) * spawnScale());
   }
 
   /* ----------------------------- 特效工具 ----------------------------- */
@@ -967,8 +992,8 @@
     }
     const nf = FLOWERS[Math.min(next - 1, FLOWERS.length - 1)];
     [523, 659, 784, 1046].forEach((f, i) => Sound.tone(f, 0.18, 'triangle', 0.14, i * 0.1));
-    state.items.length = 0;      // 清屏，面板弹出时画面干净
-    showPanel({
+    // 先播通关结算演出（跑出屏幕 → 走回玩家身边 → 结算画面），播完再弹面板
+    startFinale(() => showPanel({
       phase: 'cleared',
       icon: '✿',
       title: `第 ${state.level} 关 通过！`,
@@ -978,8 +1003,7 @@
       secondaryText: '返回关卡选择',
       onPrimary: () => enterGame('level', next),
       onSecondary: backToMenu,
-      delay: 420,
-    });
+    }));
   }
 
   /* 通关第 5 关：解锁无尽模式 */
@@ -987,8 +1011,8 @@
     progress.endless = true;
     saveProgress();
     [523, 659, 784, 1046, 1318].forEach((f, i) => Sound.tone(f, 0.24, 'triangle', 0.15, i * 0.12));
-    state.items.length = 0;
-    showPanel({
+    // 第 5 关同样先播结算演出，再弹"全部通关"面板
+    startFinale(() => showPanel({
       phase: 'allcleared',
       icon: '🏆',
       title: '全部通关！',
@@ -998,8 +1022,7 @@
       secondaryText: '返回关卡选择',
       onPrimary: () => enterGame('endless'),
       onSecondary: backToMenu,
-      delay: 420,
-    });
+    }));
   }
 
   /* --------------------- 开始界面：关卡选择 --------------------- */
@@ -1032,7 +1055,9 @@
       if (c.rx > 1.15) c.rx = -0.15;
     });
 
-    updateThrower(dt);
+    if (state.finale) updateFinale(dt);
+    else updateThrower(dt);
+    updateThrowerAnim(dt);
     updatePlayer(dt);
     updatePlayerAnim(dt);
     updateWeather(dt);
@@ -1064,8 +1089,124 @@
     if (state.throwerX < pad) { state.throwerX = pad; state.throwerDir = 1; }
   }
 
+  /* --------------------- 投掷者帧动画状态机 ---------------------
+     a.phase 累计的是「第几帧」（不是秒），这样 fps 随关卡变化时
+     不会因为切换倍率而跳帧。三种取 fps 的方式：
+       1) syncToSpawn  一个循环 = 一次丢花 → fps = 帧数 ÷ 当前生成间隔
+       2) durationSec  整段固定时长 → fps = 帧数 ÷ 时长
+       3) fps          固定帧率（走路用）
+     ------------------------------------------------------------------ */
+  function throwerFps(key) {
+    const def = THROWER_ANIMS.anims[key];
+    if (!def) return 8;
+    if (def.syncToSpawn) return def.frames.length / Math.max(0.2, spawnIntervalMs() / 1000);
+    if (def.durationSec) return def.frames.length / def.durationSec;
+    return THROWER_ANIMS.fps[key] || 8;
+  }
+
+  function setThrowerAnim(key, force = false) {
+    const a = state.throwerAnim;
+    if (a.key === key && !force) return;
+    a.key = key;
+    a.t = 0;
+    a.phase = 0;
+    a.index = 0;
+  }
+
+  function updateThrowerAnim(dt) {
+    const a = state.throwerAnim;
+    const def = THROWER_ANIMS.anims[a.key];
+    if (!def) return;
+    a.t += dt;
+    a.phase += dt * throwerFps(a.key);
+    const frame = Math.floor(a.phase);
+    a.index = def.loop
+      ? ((frame % def.frames.length) + def.frames.length) % def.frames.length
+      : Math.min(def.frames.length - 1, frame);
+  }
+
+  /* --------------------- 通关结算演出 ---------------------
+     闯关通关时玩家锁定，投掷者先在**她自己那一层高度**水平跑出画面，
+     然后在画面外换到玩家那一层（地面高度）从同侧边缘出现，水平走到玩家身边；
+     碰面后两个小人一起换成结算画面，播完才弹过关面板。
+       在左半边 → 向左跑出画外 → 从左边地面高度出现 → 向右走近玩家
+       在右半边 → 向右跑出画外 → 从右边地面高度出现 → 向左走近玩家
+     高度切换只在画面外发生，所以看不到任何斜线移动或瞬移。 */
+  function startFinale(onDone) {
+    state.phase = 'finale';
+    state.items.length = 0;
+    state.velX = 0;
+    const dir = state.throwerX <= W / 2 ? -1 : 1;
+    state.finale = {
+      stage: 'exit',        // exit 跑出画面 → wait 停顿 → approach 走近 → screen 播结算画面
+      dir,                  // -1 向左，+1 向右
+      thX: state.throwerX,
+      thY: throwerFootY,    // 出画这一段保持她原本的高度，绝不斜着走
+      playerX: state.playerX,
+      t: 0,
+      onDone,
+    };
+    setThrowerAnim(dir < 0 ? 'walkLeft' : 'walkRight', true);
+  }
+
+  function updateFinale(dt) {
+    const f = state.finale;
+    if (!f) return;
+    const halfW = THROWER_ANIMS.displaySize * VIEW.scale * 0.5;
+    f.t += dt;
+
+    if (f.stage === 'exit') {
+      f.thX += f.dir * FINALE.walkSpeed * dt;
+      const out = f.dir < 0 ? f.thX < -halfW : f.thX > W + halfW;
+      if (out) {                       // 完全跑出画面 → 画面外换到玩家那一层
+        f.dir = -f.dir;
+        f.stage = 'wait';
+        f.t = 0;
+        f.thX = f.dir > 0 ? -halfW : W + halfW;   // 挪到同侧边缘外，准备重新入场
+        f.thY = PLAYER.footY;                     // 此时在画面外，换层看不见
+      }
+      return;
+    }
+
+    if (f.stage === 'wait') {
+      // 短暂停顿：给玩家一个"她绕到地面来了"的呼吸感，再走进来
+      if (f.t >= FINALE.pauseTime) {
+        f.stage = 'approach';
+        f.t = 0;
+        setThrowerAnim(f.dir < 0 ? 'walkLeft' : 'walkRight', true);
+      }
+      return;
+    }
+
+    if (f.stage === 'approach') {
+      f.thX += f.dir * FINALE.walkSpeed * dt;
+      if (Math.abs(f.thX - f.playerX) <= FINALE.meetGap) {
+        f.thX = f.playerX - f.dir * FINALE.meetGap;   // 贴着玩家停住，不穿过去
+        f.stage = 'screen';
+        f.t = 0;
+        setThrowerAnim('finish', true);
+        [660, 880, 1046].forEach((fr, i) => Sound.tone(fr, 0.14, 'sine', 0.13, i * 0.07));
+      }
+      return;
+    }
+
+    if (f.stage === 'screen') {
+      const dur = THROWER_ANIMS.anims.finish.frames.length / throwerFps('finish');
+      if (f.t >= dur + FINALE.screenHold) {
+        const done = f.onDone;
+        f.stage = 'done';
+        state.finale = null;
+        // 演出结束：她回到日常撒花状态，合影不会再出现在画面顶部
+        setThrowerAnim('sprinkle', true);
+        done && done();        // 回调里 showPanel，正式把 phase 切到 cleared
+      }
+    }
+  }
+
   function updatePlayer(dt) {
     if (state.playerAnim.key === 'dead') { state.velX = 0; return; }   // 角色已消散，停止移动
+    // 只有 playing 能移动：暂停 / 通关演出 / 结算面板都锁住玩家
+    if (state.phase !== 'playing') { state.velX = 0; return; }
     const p = CONFIG.player;
     if (state.controlMode === 'keys') {
       const targetVel = state.moveDir * playerSpeed();
@@ -1234,6 +1375,42 @@
      逻辑高度固定，逻辑宽度按设备屏幕比例伸缩 —— 电脑 / 平板 / 手机都能铺满
      且不变形、不裁切。所有游戏坐标都由 W / H 派生，切换设备只需重算一次。
      ------------------------------------------------------------------- */
+  /* --------------------------- 投掷者站位 -----------------------------
+     脚底 = max(原位, HUD 下沿 + 角色可视高 + 余量)。
+     HUD 是 DOM，高度随「宽屏单行 / 窄屏两行」变化，所以直接量它的实际底沿，
+     再把 CSS 像素换算回逻辑像素；菜单里 HUD 是隐藏的（量不到），先按经验值估，
+     等 enterGame() 把它显示出来后再调一次。
+     ------------------------------------------------------------------- */
+  function placeThrower() {
+    const charH = THROWER_ANIMS.displaySize
+      * (THROWER_ANIMS.anchorY - THROWER_ANIMS.topPad) * VIEW.scale;
+    let hudBottom = hudBottomLogical();
+    if (hudBottom <= 0) hudBottom = W <= 820 ? H * 0.19 + 46 : H * 0.128;   // 量不到时的估值
+    hudBottomY = hudBottom;
+    throwerFootY = Math.max(H * 0.184, hudBottom + charH + 8);
+    dropStartY = throwerFootY + H * 0.05;
+    // y(t) = v0*t + g*t²/2；v0 与 g 同乘 k 时，"落完 d" 等价于 "用原速落 d/k"。
+    // 令 d/k = 原参考剩余距离，反应时间就与改动前完全一致（宽屏参考值不再变）。
+    const wideDist = GROUND_Y - H * 0.234;
+    fallPace = Math.min(1, Math.max(0.5, (GROUND_Y - dropStartY) / wideDist));
+  }
+
+  /* HUD 本体是铺满整个舞台的定位容器（高度 ≈ 舞台高，量它没意义），
+     真正压住人物的是里面的卡片：分数卡、生命卡、关卡条。取它们最靠下的底沿，
+     再换算成逻辑坐标。 */
+  function hudBottomLogical() {
+    if (el.hud.classList.contains('hidden')) return 0;
+    const sr = stage.getBoundingClientRect();
+    if (sr.height <= 0) return 0;
+    let bottom = 0;
+    el.hud.querySelectorAll('.hud-card, .level-box').forEach(n => {
+      if (n.classList.contains('hidden')) return;
+      const r = n.getBoundingClientRect();
+      if (r.height > 0) bottom = Math.max(bottom, r.bottom);
+    });
+    return bottom > 0 ? (bottom - sr.top) * (H / sr.height) : 0;
+  }
+
   function layout() {
     const cs = getComputedStyle(app);
     const availW = Math.max(200, app.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight));
@@ -1256,23 +1433,10 @@
     VIEW.groundY = GROUND_Y;
     VIEW.scale = Math.min(1.1, Math.max(0.6, W / c.refW));
 
-    /* 窄屏（逻辑宽度 ≤ 820，手机 / 小平板竖屏）HUD 贴顶占两行，会盖住
-       原本画在 H*0.184 的投掷者。把她的脚底下移到「HUD 底部 + 角色高度 + 余量」，
-       掉落物起点按原来的相对差一起下移。宽屏完全不动。
-       距离变短后按剩余距离同比放慢初速/重力（fallPace），把反应时间补回
-       宽屏水平；不改生成密度、角色速度和布局。 */
-    if (W <= 820) {
-      const throwerH = 155 * VIEW.scale;   // 与 sprites.js drawThrower 的图片框高一致
-      throwerFootY = H * 0.19 + throwerH + 8;
-      dropStartY = throwerFootY + H * 0.05;
-    } else {
-      throwerFootY = H * 0.184;
-      dropStartY = H * 0.234;
-    }
-    // y(t) = v0*t + g*t²/2；v0 与 g 同乘 k 时，"落完 d" 等价于 "用原速落 d/k"。
-    // 令 d/k = 宽屏剩余距离，反应时间就与宽屏完全一致。
-    const wideDist = GROUND_Y - H * 0.234;
-    fallPace = Math.min(1, Math.max(0.5, (GROUND_Y - dropStartY) / wideDist));
+    /* 投掷者站位：脚底始终落在 HUD 下沿之下，头部不会被进度条 / 分数卡压住。
+       窄屏（HUD 两行）自然被推得更低，宽屏也会被推到单行 HUD 下面 —— 统一算，
+       不再分设备分支。掉落距离因此变短，用 fallPace 把反应时间补回原参考水平。 */
+    placeThrower();
 
     // 舞台显示尺寸：按 contain 等比铺满可用区域
     const s = Math.min(availW / W, availH / H);
@@ -1494,14 +1658,27 @@
 
     drawBackground();
 
-    // 投掷者
-    drawThrower(ctx, state.throwerX, throwerFootY, state.time, state.throwPhase);
+    // 投掷者 / 通关结算演出
+    const fin = state.finale;
+    const inScreen = fin && fin.stage === 'screen';
+    const thX = fin ? fin.thX : state.throwerX;
+    const thY = fin ? fin.thY : throwerFootY;
 
-    drawItems();
+    if (inScreen) {
+      // 碰面后两个小人一起换成整张结算画面，居中在两人中间（只在落地这一层出现）
+      drawThrower(ctx, (fin.thX + fin.playerX) / 2, PLAYER.footY,
+        state.time, state.throwPhase, state.throwerAnim);
+    } else {
+      // 合影只能在"两人相遇的地面"出现：万一状态没切干净，也不让她顶着合影站在天上
+      if (state.throwerAnim.key !== 'finish') {
+        drawThrower(ctx, thX, thY, state.time, state.throwPhase, state.throwerAnim);
+      }
+      drawItems();
 
-    // 玩家（anim 非空时优先走帧动画）
-    const speedRatio = state.velX / playerSpeed();
-    drawPlayer(ctx, state.playerX, PLAYER.footY, state.time, speedRatio, state.hurt, basketW, state.playerAnim);
+      // 玩家（anim 非空时优先走帧动画）
+      const speedRatio = state.velX / playerSpeed();
+      drawPlayer(ctx, state.playerX, PLAYER.footY, state.time, speedRatio, state.hurt, basketW, state.playerAnim);
+    }
 
     // 粒子
     state.particles.forEach(p => {
@@ -1597,7 +1774,8 @@
 
   const clampX = v => Math.max(marginX, Math.min(W - marginX, v));
   canvas.addEventListener('pointermove', e => {
-    if (state.phase === 'paused') return;      // 暂停时别偷偷挪位置
+    // 暂停 / 通关演出 / 结算面板都不允许挪位置
+    if (state.phase !== 'playing') return;
     state.controlMode = 'mouse';
     state.targetX = clampX(canvasX(e.clientX));
   });
@@ -1698,6 +1876,7 @@
   /* ----------------------------- 启动 ----------------------------- */
   Assets.load();
   loadPlayerAnims();
+  loadThrowerAnims();
   layout();
   initDecor();
 

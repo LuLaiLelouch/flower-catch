@@ -316,12 +316,59 @@ function drawBasket(ctx, cx, cy, w, h) {
   ctx.restore();
 }
 
+/* ====================== 投掷者（撒花的人）帧动画 ====================== */
+
+const ThrowerAnims = { imgs: {} };
+
+/** 预加载 THROWER_ANIMS 里的所有帧（单帧失败不影响其他帧） */
+function loadThrowerAnims() {
+  if (typeof THROWER_ANIMS === 'undefined') return;
+  Object.entries(THROWER_ANIMS.anims).forEach(([key, def]) => {
+    ThrowerAnims.imgs[key] = def.frames.map(src => {
+      const img = new Image();
+      img.onerror = () => console.warn(`[投掷者帧] 加载失败：${src}`);
+      img.src = src;
+      return img;
+    });
+  });
+}
+
+/** 取投掷者当前帧；未加载完返回 null（上层回退到单图/矢量版） */
+function throwerAnimImg(anim) {
+  if (!anim) return null;
+  const imgs = ThrowerAnims.imgs[anim.key];
+  if (!imgs) return null;
+  const img = imgs[Math.min(anim.index, imgs.length - 1)];
+  return (img && img.complete && img.naturalWidth > 0) ? img : null;
+}
+
+/** 画投掷者当前帧；返回 true = 已绘制（drawThrower 不用再画素材/矢量版） */
+function drawThrowerFrame(ctx, x, footY, anim) {
+  if (anim.hidden) return true;
+  const img = throwerAnimImg(anim);
+  if (!img) return false;
+  const s = VIEW.scale;
+  const isFinish = anim.key === 'finish';
+  const dispW = (isFinish ? THROWER_ANIMS.finishWidth : THROWER_ANIMS.displaySize) * s;
+  const scale = dispW / img.naturalWidth;
+  const dispH = img.naturalHeight * scale;
+  ctx.save();
+  ctx.imageSmoothingEnabled = false;   // 像素画风：保持锐利
+  ctx.drawImage(img, x - dispW / 2, footY - dispH * THROWER_ANIMS.anchorY, dispW, dispH);
+  ctx.restore();
+  return true;
+}
+
 /* ============================ 投掷者 ============================ */
-function drawThrower(ctx, x, y, t, throwPhase = 0) {
+function drawThrower(ctx, x, y, t, throwPhase = 0, anim = null) {
   const footY = y;
   const headR = 22;
   const s = VIEW.scale;   // 和玩家 / 掉落物共用同一个系数，窄屏一起变小
 
+  // ① 优先：帧序列动画（撒花 / 左右走 / 结算画面）
+  if (anim && drawThrowerFrame(ctx, x, footY, anim)) return;
+
+  // ② 回退：单张素材图
   const tw = 120 * assetScale('thrower') * s;
   const th = 155 * assetScale('thrower') * s;
   if (drawAsset(ctx, 'thrower', x, footY, tw, th, 'bottom')) return;

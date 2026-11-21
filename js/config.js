@@ -58,6 +58,52 @@ const PLAYER_ANIMS = {
 };
 
 /* -------------------------------------------------------------------------
+   投掷者（撒花的人）动作帧动画
+   - 帧在 assets/thrower/<动作>/ 下，按 1.png 2.png … 顺序编号
+     sprinkle  撒花（循环）        walkLeft / walkRight  通关结算演出用（循环）
+     finish    双人结算画面（一次性，480×320 横composition）
+   - displaySize：角色显示宽度（逻辑像素，会再乘 VIEW.scale）
+   - anchorY：脚底在源图纵向的位置（0=图顶 1=图底），用来把脚对齐地面
+   - topPad：角色内容在源图里的顶部留白比例，layout() 用它算"整个头露出来要多高"
+     —— 源图 320×320 但角色只画在中间，所以这几个比例值缺一不可
+   - finishWidth：结算画面整张图的显示宽度。它是双人并排的横图，按宽度缩放；
+     调大/调小可以让合影里的两个人和游戏里的角色保持同样大小
+   - fps 只给走路用（10）；撒花跟丢花频率绑定（syncToSpawn）、结算画面按时长（durationSec）
+   想换动作：替换对应文件夹里的 PNG 即可；想加动作就加一个条目
+   ------------------------------------------------------------------------- */
+const throwerSeq = (dir, n) => Array.from({ length: n }, (_, i) => `assets/thrower/${dir}/${i + 1}.png`);
+
+const THROWER_ANIMS = {
+  displaySize: 140,     // 与玩家 displaySize 一致 → 两人可视高度相同（源图角色只占中间约 59%）
+  anchorY: 0.844,       // 脚底在源图 84.4% 高度处（实测透明包围盒底边）
+  topPad: 0.25,         // 角色内容从源图 25% 高度才开始，layout() 用它算"露头需要多高"
+  finishWidth: 250,     // 结算画面按宽度缩放，比单人大一圈才有"合影"的感觉
+  // 走路用固定 fps；撒花与结算画面改用"时长"驱动（见下面两个字段）
+  fps: { walkLeft: 10, walkRight: 10 },
+  anims: {
+    // syncToSpawn：一个撒花循环 = 一次丢花，节奏自动跟当前关卡的生成间隔走
+    sprinkle:  { frames: throwerSeq('sprinkle', 8),   loop: true,  syncToSpawn: true },
+    walkLeft:  { frames: throwerSeq('walk-left', 4),  loop: true  },
+    walkRight: { frames: throwerSeq('walk-right', 4), loop: true  },
+    // durationSec：整段合影播多久（9 帧摊到 5 秒，一帧约 0.56 秒，慢到能看清）
+    finish:    { frames: throwerSeq('finish', 9),     loop: false, durationSec: 5 },
+  },
+};
+
+/* 通关结算演出（闯关模式通关时播放，播完才弹过关面板）
+     她先在自己那一层水平跑出画面，画面外换到地面的高度，再从同侧边缘水平走回来
+     walkSpeed   投掷者走路速度（逻辑像素/秒）
+     meetGap     两人"碰到"的距离阈值（逻辑像素），越大越早停
+     pauseTime   跑出画面后停顿多久再从边缘出现（秒）
+     screenHold  结算画面播完后停留多久再弹面板（秒） */
+const FINALE = {
+  walkSpeed: 240,
+  meetGap: 46,
+  pauseTime: 0.18,
+  screenHold: 0.35,
+};
+
+/* -------------------------------------------------------------------------
    闯关模式 · 5 关难度曲线
      target      本关目标分（本关内拿到这么多分即过关）
      bombRate    炸弹出现比例
